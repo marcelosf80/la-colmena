@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 520" width="1100" height="520" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="flecha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#FFB300"/>
+    </marker>
+  </defs>
+
+  <rect width="1100" height="520" fill="#14151F" rx="14"/>
+
+  <text x="550" y="46" text-anchor="middle" font-size="26" font-weight="700" fill="#FFFFFF">Arquitectura: una consulta recorre la cadena de nodos</text>
+
+  <!-- Usuario -->
+  <g>
+    <rect x="40" y="205" width="180" height="80" rx="12" fill="#263248" stroke="#4FC3F7" stroke-width="2"/>
+    <text x="130" y="240" text-anchor="middle" font-size="20" font-weight="600" fill="#4FC3F7">Usuario</text>
+    <text x="130" y="266" text-anchor="middle" font-size="14" fill="#B0BEC5">consulta + créditos</text>
+  </g>
+
+  <!-- Coordinador -->
+  <g>
+    <rect x="290" y="180" width="220" height="130" rx="12" fill="#2A2438" stroke="#BA68C8" stroke-width="2"/>
+    <text x="400" y="215" text-anchor="middle" font-size="20" font-weight="600" fill="#CE93D8">Coordinador</text>
+    <text x="400" y="240" text-anchor="middle" font-size="13" fill="#B0BEC5">FastAPI · planificador puro</text>
+    <text x="400" y="260" text-anchor="middle" font-size="13" fill="#B0BEC5">arma la cadena, lleva el</text>
+    <text x="400" y="278" text-anchor="middle" font-size="13" fill="#B0BEC5">libro de créditos</text>
+  </g>
+
+  <line x1="220" y1="245" x2="290" y2="245" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
+  <text x="255" y="235" text-anchor="middle" font-size="12" fill="#90A4AE">HTTP/WS</text>
+
+  <!-- Nodos -->
+  <g>
+    <rect x="610" y="90" width="200" height="76" rx="12" fill="#263238" stroke="#FFB300" stroke-width="2"/>
+    <text x="710" y="122" text-anchor="middle" font-size="19" font-weight="600" fill="#FFB300">Nodo 0 (Rust)</text>
+    <text x="710" y="146" text-anchor="middle" font-size="13" fill="#B0BEC5">capas 0–11 · llama.cpp</text>
+
+    <rect x="610" y="212" width="200" height="76" rx="12" fill="#263238" stroke="#FFB300" stroke-width="2"/>
+    <text x="710" y="244" text-anchor="middle" font-size="19" font-weight="600" fill="#FFB300">Nodo 1 (Rust)</text>
+    <text x="710" y="268" text-anchor="middle" font-size="13" fill="#B0BEC5">capas 12–23 · llama.cpp</text>
+
+    <rect x="610" y="334" width="200" height="76" rx="12" fill="#263238" stroke="#FFB300" stroke-width="2"/>
+    <text x="710" y="366" text-anchor="middle" font-size="19" font-weight="600" fill="#FFB300">Nodo 2</text>
+    <text x="710" y="390" text-anchor="middle" font-size="13" fill="#B0BEC5">capas 24–31 · Kotlin (futuro)</text>
+  </g>
+
+  <!-- Cadena -->
+  <line x1="530" y1="245" x2="610" y2="245" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
+  <text x="570" y="235" text-anchor="middle" font-size="12" fill="#90A4AE">asigna</text>
+
+  <line x1="710" y1="166" x2="710" y2="212" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
+  <line x1="710" y1="288" x2="710" y2="334" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
+  <text x="770" y="196" text-anchor="middle" font-size="12" fill="#90A4AE">activaciones</text>
+  <text x="770" y="318" text-anchor="middle" font-size="12" fill="#90A4AE">activaciones</text>
+
+  <!-- Protocolo -->
+  <rect x="890" y="180" width="170" height="130" rx="12" fill="#1B232D" stroke="#80CBC4" stroke-width="2"/>
+  <text x="975" y="215" text-anchor="middle" font-size="18" font-weight="600" fill="#80CBC4">Protocolo</text>
+  <text x="975" y="245" text-anchor="middle" font-size="13" fill="#B0BEC5">Protobuf v1</text>
+  <text x="975" y="268" text-anchor="middle" font-size="13" fill="#B0BEC5">registro · heartbeat</text>
+  <text x="975" y="288" text-anchor="middle" font-size="13" fill="#B0BEC5">asignación · resultados</text>
+
+  <line x1="850" y1="245" x2="890" y2="245" stroke="#90A4AE" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#flecha)" opacity="0.7"/>
+
+  <!-- Resultado -->
+  <path d="M 710 410 C 710 470, 400 470, 130 285" fill="none" stroke="#80CBC4" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#flecha)"/>
+  <text x="400" y="478" text-anchor="middle" font-size="13" fill="#80CBC4">respuesta generada · créditos por cómputo verificado</text>
+
+  <text x="550" y="505" text-anchor="middle" font-size="13" fill="#546E7A">Los pesos del modelo se descargan del catálogo oficial: entre pares se comparte cómputo, no archivos.</text>
+</svg>

@@ -1,0 +1,30 @@
+services:
+  coordinador:
+    build:
+      context: ../coordinador
+    ports:
+      - "8000:8000"
+    environment:
+      COMUNIDAD_IA_ENTORNO: desarrollo
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: comunidad_ia
+      POSTGRES_PASSWORD: cambiar_en_produccion
+      POSTGRES_DB: comunidad_ia
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

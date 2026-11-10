@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="miel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB300"/>
+      <stop offset="0.5" stop-color="#F57C00"/>
+      <stop offset="1" stop-color="#E65100"/>
+    </linearGradient>
+    <linearGradient id="fondo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1A1B26"/>
+      <stop offset="1" stop-color="#24253A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fondo hexagonal -->
+  <polygon points="256,16 471,138 471,374 256,496 41,374 41,138" fill="url(#fondo)"/>
+  <polygon points="256,16 471,138 471,374 256,496 41,374 41,138" fill="none" stroke="#FFB300" stroke-width="8"/>
+
+  <!-- Celdas de la colmena -->
+  <g fill="url(#miel)">
+    <polygon points="256,110 322,148 322,224 256,262 190,224 190,148" opacity="0.95"/>
+    <polygon points="178,270 244,308 244,384 178,422 112,384 112,308" opacity="0.55"/>
+    <polygon points="334,270 400,308 400,384 334,422 268,384 268,308" opacity="0.55"/>
+    <polygon points="256,430 300,454 300,460 256,484 212,460 212,454" opacity="0.3"/>
+    <polygon points="120,262 176,244 176,250 120,268 120,262" opacity="0.25"/>
+    <polygon points="392,262 336,244 336,250 392,268 392,262" opacity="0.25"/>
+  </g>
+
+  <!-- Abeja -->
+  <g transform="translate(256,186)">
+    <ellipse cx="-46" cy="6" rx="26" ry="18" fill="#90A4AE" opacity="0.85" transform="rotate(-30 -46 6)"/>
+    <ellipse cx="46" cy="6" rx="26" ry="18" fill="#90A4AE" opacity="0.85" transform="rotate(30 46 6)"/>
+    <ellipse cx="0" cy="0" rx="34" ry="24" fill="#FFC107"/>
+    <rect x="-18" y="-24" width="12" height="48" rx="6" fill="#263238"/>
+    <rect x="4" y="-24" width="12" height="48" rx="6" fill="#263238"/>
+    <circle cx="24" cy="-6" r="14" fill="#263238"/>
+    <circle cx="30" cy="-10" r="3.5" fill="#FFC107"/>
+  </g>
+
+  <!-- Conexiones de red entre celdas -->
+  <g stroke="#FFE082" stroke-width="4" stroke-linecap="round" opacity="0.9">
+    <line x1="212" y1="252" x2="196" y2="292"/>
+    <line x1="300" y1="252" x2="316" y2="292"/>
+    <line x1="256" y1="270" x2="256" y2="330"/>
+  </g>
+</svg>

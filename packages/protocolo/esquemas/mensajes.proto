@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package comunidadia.v1;
+
+// Mensajes entre un nodo (escritorio o Android) y el coordinador.
+// Versión del protocolo: v1. Cualquier cambio incompatible requiere v2
+// y un período de soporte dual documentado en versiones.md.
+
+enum EstadoNodo {
+  ESTADO_NODO_DESCONOCIDO = 0;
+  ESTADO_NODO_CONECTADO = 1;
+  ESTADO_NODO_OCUPADO = 2;
+  ESTADO_NODO_CAIDO = 3;
+}
+
+message RegistroNodo {
+  string nodo_id = 1;
+  string token = 2;
+  uint64 ram_donada_mb = 3;
+  uint32 cores_donados = 4;
+  bool tiene_gpu = 5;
+  string modelo_hash = 6;       // modelo que este nodo puede servir
+  uint32 posicion = 7;          // bloque de capas que cargó
+  double tokens_por_segundo = 8; // resultado del benchmark al conectar
+}
+
+message Heartbeat {
+  string nodo_id = 1;
+  EstadoNodo estado = 2;
+  uint32 consultas_en_curso = 3;
+  uint64 timestamp_unix = 4;
+}
+
+message AsignacionTrabajo {
+  string trabajo_id = 1;
+  string modelo_hash = 2;
+  repeated string cadena_nodo_ids = 3; // orden de la cadena, posición 0..N
+  uint64 timeout_ms = 4;
+}
+
+message ResultadoParcial {
+  string trabajo_id = 1;
+  uint32 posicion = 2;
+  bytes activacion = 3; // salida intermedia hacia el siguiente nodo
+}
+
+message ResultadoFinal {
+  string trabajo_id = 1;
+  string texto_generado = 2;
+  bool exito = 3;
+  string error = 4;
+}

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12131C"/>
+      <stop offset="1" stop-color="#262A45"/>
+    </linearGradient>
+    <linearGradient id="miel2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFB300"/>
+      <stop offset="1" stop-color="#E65100"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="320" fill="url(#fondo)"/>
+
+  <!-- Celdas hexagonales decorativas -->
+  <g fill="#FFB300" opacity="0.10">
+    <polygon points="1050,60 1110,94 1110,162 1050,196 990,162 990,94"/>
+    <polygon points="1160,140 1220,174 1220,242 1160,276 1100,242 1100,174"/>
+    <polygon points="1200,20 1260,54 1260,122 1200,156 1140,122 1140,54"/>
+    <polygon points="940,200 1000,234 1000,302 940,336 880,302 880,234"/>
+  </g>
+
+  <!-- Logo -->
+  <g transform="translate(90,72) scale(0.55)">
+    <polygon points="256,16 471,138 471,374 256,496 41,374 41,138" fill="#1A1B26" stroke="#FFB300" stroke-width="16"/>
+    <g fill="url(#miel2)">
+      <polygon points="256,110 322,148 322,224 256,262 190,224 190,148"/>
+      <polygon points="178,270 244,308 244,384 178,422 112,384 112,308" opacity="0.5"/>
+      <polygon points="334,270 400,308 400,384 334,422 268,384 268,308" opacity="0.5"/>
+    </g>
+  </g>
+
+  <text x="330" y="145" font-size="80" font-weight="700" fill="#FFFFFF">La Colmena</text>
+  <text x="336" y="200" font-size="28" fill="#FFB300" font-weight="500">Cómputo compartido para IA — como abejas en su colmena</text>
+
+  <g fill="#8D97B5" font-size="21" font-weight="600">
+    <text x="336" y="256">Nodo en Rust</text>
+    <text x="480" y="256">·</text>
+    <text x="500" y="256">Coordinador FastAPI</text>
+    <text x="696" y="256">·</text>
+    <text x="716" y="256">Protobuf v1</text>
+    <text x="832" y="256">·</text>
+    <text x="852" y="256">33 tests ✅</text>
+  </g>
+</svg>
