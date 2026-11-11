@@ -1,15 +1,20 @@
+mod canal_trabajo;
 mod cliente_coordinador;
 mod control_usuario;
 mod ejecutor_modelo;
+mod motor_servidor;
 mod politicas_recursos;
 mod recibo_local;
 
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
+
 use clap::Parser;
-use cliente_coordinador::{ClienteCoordinador, RegistroNodo};
+use cliente_coordinador::{url_websocket, ClienteCoordinador, Latido, RegistroNodo};
 use control_usuario::{ControlUsuario, EstadoControl};
 use ejecutor_modelo::{MotorInferencia, MotorSimulado};
 use politicas_recursos::PoliticaRecursos;
-use std::time::Duration;
 use sysinfo::System;
 use tracing::{info, warn};
 
@@ -40,6 +45,29 @@ struct Argumentos {
     /// CPU máxima a donar, en porcentaje (0-100)
     #[arg(long, default_value_t = 50.0)]
     cpu_max_pct: f32,
+
+    /// Archivo local append-only con los trabajos procesados
+    #[arg(long, default_value = "recibos-colmena.log")]
+    archivo_recibos: String,
+
+    /// Ruta al binario `llama-server` oficial de llama.cpp. Si se pasa
+    /// junto con `--pesos`, el nodo ejecuta inferencia REAL en lugar del
+    /// motor simulado. El binario se descarga del catálogo oficial.
+    #[arg(long)]
+    llama_server: Option<String>,
+
+    /// Ruta al archivo de pesos .gguf del modelo (requiere --llama-server)
+    #[arg(long)]
+    pesos: Option<String>,
+
+    /// Puerto local del motor (llama-server escucha en 127.0.0.1)
+    #[arg(long, default_value_t = 8718)]
+    puerto_motor: u16,
+
+    /// Prompt de demostración para procesar asignaciones mientras el
+    /// protocolo de activaciones no viaje por el canal (Fase 1).
+    #[arg(long, default_value = "En una frase, qué es el cómputo compartido para IA:")]
+    prompt_demo: String,
 }
 
 #[tokio::main]
@@ -51,12 +79,43 @@ async fn main() -> anyhow::Result<()> {
     let (control, estado_rx) = ControlUsuario::nuevo();
     let cliente = ClienteCoordinador::nuevo(args.coordinador.clone());
 
-    // Placeholder: en la implementación real, `capas_desde`/`capas_hasta`
-    // salen del catálogo de modelos según `args.posicion`, y el motor real
-    // (MotorLlamaCpp) carga los pesos desde disco con esas capas.
-    let mut motor = MotorSimulado::default();
-    motor.cargar("placeholder.gguf", args.posicion * 8, args.posicion * 8 + 8)?;
-    info!(motor_capas = ?motor.capas_cargadas(), "motor de inferencia listo (simulado)");
+    // Selección de motor: real (llama-server subprocess) si el usuario pasa
+    // binario + pesos; simulado en caso contrario (dev/CI, sin pesos).
+    let motor: Arc<dyn MotorInferencia> = match (&args.llama_server, &args.pesos) {
+        (Some(ruta_binario), Some(ruta_pesos)) => {
+            let motor_real = motor_servidor::MotorServidorLlama::iniciar(
+                ruta_binario,
+                ruta_pesos,
+                args.puerto_motor,
+            )?;
+            info!(
+                puerto_motor = ?motor_real.puerto(),
+                pesos = %ruta_pesos,
+                "motor REAL de llama.cpp listo (llama-server subprocess)"
+            );
+            Arc::new(motor_real)
+        }
+        (Some(_), None) => {
+            anyhow::bail!("pasaste --llama-server pero falta --pesos <ruta.gguf>");
+        }
+        (None, Some(_)) => {
+            anyhow::bail!("pasaste --pesos pero falta --llama-server <ruta del binario>");
+        }
+        (None, None) => {
+            let mut motor_sim = MotorSimulado::default();
+            motor_sim.cargar(
+                "placeholder.gguf",
+                args.posicion * 8,
+                args.posicion * 8 + 8,
+            )?;
+            info!(
+                motor_capas = ?motor_sim.capas_cargadas(),
+                "motor de inferencia listo (simulado: usá --llama-server + --pesos para inferencia real)"
+            );
+            Arc::new(motor_sim)
+        }
+    };
+    let prompt_demo = args.prompt_demo.clone();
 
     cliente
         .registrar(&RegistroNodo {
@@ -70,6 +129,14 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
     info!(nodo_id = %args.nodo_id, "registrado en el coordinador");
+
+    // Canal de despacho: el coordinador empuja asignaciones por WebSocket.
+    // El hilo reconecta solo; el loop principal decide si acepta el trabajo.
+    let (emisor_trabajos, mut receptor_trabajos) = tokio::sync::mpsc::unbounded_channel();
+    let _canal = canal_trabajo::iniciar(
+        url_websocket(&args.coordinador, &args.nodo_id),
+        emisor_trabajos,
+    );
 
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::pin!(ctrl_c);
@@ -85,27 +152,112 @@ async fn main() -> anyhow::Result<()> {
                 let uso_cpu_pct = sistema.global_cpu_info().cpu_usage();
 
                 if *estado_rx.borrow() == EstadoControl::Pausado {
-                    info!("nodo pausado por el usuario, sin aceptar trabajo");
+                    // Informar al coordinador para que no asigne trabajo:
+                    // un nodo pausado equivale a CAIDO para el planificador.
+                    informar_pausa(&cliente, &args.nodo_id).await;
                     continue;
                 }
                 if !politica.dentro_de_limite(uso_ram_mb, uso_cpu_pct) {
                     warn!(uso_ram_mb, uso_cpu_pct, "fuera de la política donada, pausando");
                     control.pausar();
+                    informar_pausa(&cliente, &args.nodo_id).await;
                     continue;
                 }
-                info!(uso_ram_mb, uso_cpu_pct, "heartbeat ok");
-                // TODO Fase 1: enviar heartbeat real al coordinador y recibir
-                // trabajo asignado por WebSocket.
+
+                // Heartbeat real: estado y carga viajan al coordinador.
+                match cliente
+                    .enviar_heartbeat(
+                        &args.nodo_id,
+                        &Latido { consultas_en_curso: 0, acepta_trabajo: true },
+                    )
+                    .await
+                {
+                    Ok(()) => info!(uso_ram_mb, uso_cpu_pct, "heartbeat enviado al coordinador"),
+                    Err(error) => warn!(%error, "no se pudo enviar el heartbeat"),
+                }
+            }
+            Some(asignacion) = receptor_trabajos.recv() => {
+                info!(
+                    trabajo_id = %asignacion.trabajo_id,
+                    posicion = asignacion.posicion,
+                    cadena = ?asignacion.cadena,
+                    "asignación de trabajo recibida"
+                );
+
+                if *estado_rx.borrow() != EstadoControl::Activo {
+                    warn!(trabajo_id = %asignacion.trabajo_id, "nodo pausado: asignación descartada");
+                    continue;
+                }
+
+                // El motor es un servidor HTTP: la llamada es bloqueante,
+                // así que corre en spawn_blocking para no frenar heartbeat
+                // ni control de usuario.
+                let motor = motor.clone();
+                let prompt = prompt_demo.clone();
+                let motor_para_tokens = motor.clone();
+                let resultado = tokio::task::spawn_blocking(move || {
+                    motor.procesar(&prompt.into_bytes())
+                })
+                .await;
+
+                match resultado {
+                    Ok(Ok(activacion)) => {
+                        let tokens = motor_para_tokens.tokens_de_ultima_ejecucion();
+                        info!(
+                            trabajo_id = %asignacion.trabajo_id,
+                            tokens_generados = tokens,
+                            bytes_salida = activacion.len(),
+                            "asignación procesada por el motor"
+                        );
+                        let recibo = recibo_local::Recibo {
+                            trabajo_id: asignacion.trabajo_id.clone(),
+                            tokens_procesados: tokens,
+                        };
+                        if let Err(error) =
+                            recibo_local::registrar(Path::new(&args.archivo_recibos), &recibo)
+                        {
+                            warn!(%error, "no se pudo registrar el recibo local");
+                        }
+                        // TODO Fase 1: enviar la activación a
+                        // `siguiente_nodo_id` y devolver el resultado al
+                        // coordinador (protocolo de activaciones pendiente).
+                    }
+                    Ok(Err(error)) => {
+                        warn!(trabajo_id = %asignacion.trabajo_id, %error, "el motor no pudo procesar la asignación");
+                    }
+                    Err(error) => {
+                        warn!(%error, "la tarea del motor falló al ejecutarse");
+                    }
+                }
             }
             _ = &mut ctrl_c => {
                 info!("señal de apagado recibida, deteniendo nodo");
                 control.detener();
+                // Último heartbeat: avisar que este nodo ya no acepta trabajo.
+                let _ = cliente
+                    .enviar_heartbeat(
+                        &args.nodo_id,
+                        &Latido { consultas_en_curso: 0, acepta_trabajo: false },
+                    )
+                    .await;
                 break;
             }
         }
     }
 
     Ok(())
+}
+
+async fn informar_pausa(cliente: &ClienteCoordinador, nodo_id: &str) {
+    if let Err(error) = cliente
+        .enviar_heartbeat(
+            nodo_id,
+            &Latido { consultas_en_curso: 0, acepta_trabajo: false },
+        )
+        .await
+    {
+        warn!(%error, "no se pudo informar la pausa al coordinador");
+    }
 }
 
 fn num_cpus_logicos() -> u32 {

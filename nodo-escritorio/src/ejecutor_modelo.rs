@@ -23,6 +23,12 @@ pub trait MotorInferencia: Send + Sync {
     /// devuelve la activación resultante para el siguiente nodo de la cadena.
     fn procesar(&self, entrada: &Activacion) -> Result<Activacion>;
 
+    /// Tokens generados por la última ejecución, para el recibo local de
+    /// créditos. 0 si el motor no implementa conteo.
+    fn tokens_de_ultima_ejecucion(&self) -> u64 {
+        0
+    }
+
     fn capas_cargadas(&self) -> Option<(u32, u32)>;
 }
 

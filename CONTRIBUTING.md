@@ -68,7 +68,7 @@ file matters most.
 |---|---|
 | `coordinador/app/infraestructura` | Migraciones versionadas (alembic), cache/cola en Redis |
 | `nodo-escritorio/src/ejecutor_modelo.rs` | Bind de `llama.cpp` (crate `llama-cpp-2` o FFI) |
-| `nodo-escritorio` | Heartbeat real + WebSocket con tokio-tungstenite |
+| `nodo-escritorio` | ResultadoParcial/Final por el canal, benchmark real al conectar |
 | `docs/` | ADRs, decisiones abiertas (descentralización del coordinador) |
 | `infraestructura/` | Métricas, healthchecks (Prometheus/Grafana) |
 | CI | Cobertura de tests, linting (ruff/clippy) |

@@ -18,7 +18,7 @@ como abejas aportando a una colmena.
 ## Badges
 
 ![Estado](https://img.shields.io/badge/estado-fase%200%20%2B%20esqueleto%20fase%201-FFB300)
-![Tests](https://img.shields.io/badge/tests-40%20pasando-4CAF50)
+![Tests](https://img.shields.io/badge/tests-31%20%2B%20nodo%20%2B%20integracion-4CAF50)
 ![Lenguajes](https://img.shields.io/badge/Python-FastAPI-3776AB?logo=python&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-daemon%20nodo-DEA584?logo=rust&logoColor=black)
 ![Protocolo](https://img.shields.io/badge/protocolo-Protobuf%20v1-A2AAFF)
@@ -44,8 +44,8 @@ Usuario ──► Coordinador ──► [Nodo 0] ──► [Nodo 1] ──► [N
 
 | Componente | Stack | Rol | Estado |
 |---|---|---|---|
-| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, arma cadenas, lleva créditos | ✅ 19 tests |
-| [`nodo-escritorio/`](nodo-escritorio/) | Rust | Daemon del usuario: heartbeat, políticas de recursos, motor de inferencia | ✅ 21 tests (motor = stub) |
+| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, arma cadenas, lleva créditos, despacha por WS | ✅ 31 tests |
+| [`nodo-escritorio/`](nodo-escritorio/) | Rust | Daemon del usuario: registro, heartbeat real, políticas de recursos, control de usuario, canal WebSocket de despacho | ✅ motor = stub |
 | [`packages/protocolo/`](packages/protocolo/) | Protobuf v1 | Contrato compartido por todas las implementaciones | ✅ |
 | [`infraestructura/`](infraestructura/) | docker-compose | Coordinador + Postgres 17 + Redis 7 | ✅ Postgres conectado |
 | Nodo Android | Kotlin | Mismo rol del nodo de escritorio, con restricciones de batería/red | 🔜 pendiente |
@@ -86,6 +86,11 @@ cargo build --release
 curl http://localhost:8000/nodos/<hash-del-modelo>
 ```
 
+El nodo **lattea cada 10 segundos** al coordinador (HTTP) y **recibe
+asignaciones de trabajo por WebSocket**: si abrís una consulta mientras el
+nodo está corriendo, verás la asignación llegar en el log del daemon.
+Ver [`docs/heartbeat-y-canal.md`](docs/heartbeat-y-canal.md).
+
 **Con Docker (coordinador + Postgres + Redis):**
 
 ```bash
@@ -96,8 +101,8 @@ docker compose up --build
 **Tests:**
 
 ```bash
-cd coordinador && pytest tests/unitarios -v   # 19 tests
-cd nodo-escritorio && cargo test              # 21 tests
+cd coordinador && pytest tests/unitarios -v   # 31 tests
+cd nodo-escritorio && cargo test              # 32 tests
 ```
 
 **Con Postgres local:**
@@ -112,9 +117,11 @@ uvicorn app.main:app --reload   # desde coordinador/
 - [x] Esquema Protobuf del protocolo
 - [x] Coordinador: dominio + API base (nodos, usuarios, créditos, planificador)
 - [x] Persistencia Postgres (repositorios async, esquema idempotente, CI con base real)
-- [x] Nodo de escritorio: registro, heartbeat local, políticas de recursos, control de usuario
-- [ ] Bind real de `llama.cpp` en el nodo (hoy `MotorSimulado`)
-- [ ] Heartbeat real + WebSocket para despachar trabajo
+- [x] Heartbeat real + WebSocket para despachar trabajo
+- [x] Nodo de escritorio: registro, heartbeat real, políticas de recursos, control de usuario
+- [x] Inferencia real con llama.cpp en el nodo (binario oficial `llama-server` como subprocess; sin FFI ni toolchain C++)
+- [ ] Resultado parcial/final de vuelta al coordinador (activaciones por el canal)
+- [ ] Cola de trabajos `EN_COLA` con reintento de despacho
 - [ ] Verificación de aportes por réplicas
 - [ ] Nodo Android (Kotlin)
 - [ ] Descentralización del coordinador ([discusión abierta](docs/arquitectura.md))

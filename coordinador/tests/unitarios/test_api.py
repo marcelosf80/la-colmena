@@ -79,3 +79,94 @@ def test_consulta_sin_candidatos_para_posicion_devuelve_503() -> None:
 def test_listado_de_modelo_desconocido_devuelve_404() -> None:
     with TestClient(app) as cliente:
         assert cliente.get(f"/nodos/{_modelo_unico()}").status_code == 404
+
+
+def test_heartbeat_actualiza_estado_y_carga() -> None:
+    modelo = _modelo_unico()
+    nodo_id = f"nodo-hb-{uuid4()}"
+    with TestClient(app) as cliente:
+        _registrar(cliente, nodo_id, posicion=0, modelo_hash=modelo)
+
+        respuesta = cliente.post(
+            f"/nodos/{nodo_id}/heartbeat",
+            json={"consultas_en_curso": 2, "acepta_trabajo": True},
+        )
+        assert respuesta.status_code == 200
+        assert respuesta.json()["estado"] == "OCUPADO"
+
+        estado = cliente.get(f"/nodos/{modelo}").json()[0]
+        assert estado["consultas_en_curso"] == 2
+        assert estado["estado"] == "OCUPADO"
+
+        # El usuario pausa el nodo: deja de aceptar trabajo.
+        respuesta = cliente.post(
+            f"/nodos/{nodo_id}/heartbeat",
+            json={"consultas_en_curso": 0, "acepta_trabajo": False},
+        )
+        assert respuesta.json()["estado"] == "CAIDO"
+
+
+def test_heartbeat_de_nodo_desconocido_devuelve_404() -> None:
+    with TestClient(app) as cliente:
+        respuesta = cliente.post(
+            f"/nodos/no-existe-{uuid4()}/heartbeat",
+            json={"consultas_en_curso": 0},
+        )
+        assert respuesta.status_code == 404
+
+
+def test_consulta_se_despacha_por_websocket_al_primer_nodo() -> None:
+    modelo = _modelo_unico()
+    nodo_a = f"nodo-ws-a-{uuid4()}"
+    nodo_b = f"nodo-ws-b-{uuid4()}"
+    with TestClient(app) as cliente:
+        _registrar(cliente, nodo_a, posicion=0, modelo_hash=modelo)
+        _registrar(cliente, nodo_b, posicion=1, modelo_hash=modelo)
+
+        with cliente.websocket_connect(f"/ws/nodos/{nodo_a}") as ws:
+            respuesta = cliente.post(
+                "/consultas",
+                json={
+                    "usuario_id": "usuario-1",
+                    "modelo_hash": modelo,
+                    "total_posiciones": 2,
+                    "prompt": "hola por ws",
+                },
+            )
+            assert respuesta.status_code == 202
+            cuerpo = respuesta.json()
+            assert cuerpo["despachado"] is True
+            assert cuerpo["estado"] == "en_curso"
+
+            asignacion = ws.receive_json()
+            assert asignacion["tipo"] == "asignacion"
+            assert asignacion["trabajo_id"] == cuerpo["trabajo_id"]
+            assert asignacion["cadena"] == [nodo_a, nodo_b]
+            assert asignacion["siguiente_nodo_id"] == nodo_b
+
+        # Al cerrarse el canal, el nodo se marca CAIDO.
+        listado = cliente.get(f"/nodos/{modelo}").json()
+        estados = {c["nodo_id"]: c["estado"] for c in listado}
+        assert estados[nodo_a] == "CAIDO"
+
+        estado_trabajo = cliente.get(f"/consultas/{cuerpo['trabajo_id']}").json()
+        assert estado_trabajo["estado"] == "en_curso"
+
+
+def test_consulta_sin_nodo_conectado_queda_en_cola() -> None:
+    modelo = _modelo_unico()
+    with TestClient(app) as cliente:
+        _registrar(cliente, f"nodo-sin-ws-{uuid4()}", posicion=0, modelo_hash=modelo)
+
+        respuesta = cliente.post(
+            "/consultas",
+            json={
+                "usuario_id": "usuario-1",
+                "modelo_hash": modelo,
+                "total_posiciones": 1,
+                "prompt": "sin canal abierto",
+            },
+        )
+        assert respuesta.status_code == 202
+        assert respuesta.json()["despachado"] is False
+        assert respuesta.json()["estado"] == "en_cola"

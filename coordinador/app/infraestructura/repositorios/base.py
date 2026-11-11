@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from app.dominio.creditos import TipoAsiento
-from app.dominio.nodos import Candidato
+from app.dominio.nodos import Candidato, EstadoNodo
 from app.dominio.trabajos import Trabajo
 
 
@@ -22,6 +22,22 @@ class RepositorioCandidatos(Protocol):
     async def listar_por_modelo(self, modelo_hash: str) -> list[Candidato]: ...
 
     async def listar_todos(self) -> list[Candidato]: ...
+
+    async def actualizar_latido(
+        self,
+        nodo_id: str,
+        estado: EstadoNodo,
+        consultas_en_curso: int,
+        momento_unix: float,
+    ) -> bool:
+        """Persiste el estado y la carga reportados por un heartbeat.
+        Devuelve False si el nodo no existe."""
+        ...
+
+    async def marcar_caidos_sin_latido(self, ahora_unix: float, timeout_s: float) -> list[str]:
+        """Marca como CAIDOS los nodos cuyo último latido venció.
+        Devuelve los ids afectados."""
+        ...
 
 
 @runtime_checkable

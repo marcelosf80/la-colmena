@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.dependencias import repo_candidatos
+from app.dominio.heartbeat import Latido, estado_efectivo
 from app.dominio.nodos import Candidato, EstadoNodo, Nodo
 from app.infraestructura.repositorios.base import RepositorioCandidatos
 
@@ -61,3 +64,37 @@ async def listar_candidatos(
         }
         for c in candidatos
     ]
+
+
+class LatidoRequest(BaseModel):
+    consultas_en_curso: int = Field(ge=0, default=0)
+    # El usuario pausó el nodo o la política de recursos lo sacó de rango.
+    acepta_trabajo: bool = True
+    timestamp_unix: int = Field(ge=0, default=0)
+
+
+@router.post("/{nodo_id}/heartbeat")
+async def recibir_heartbeat(
+    nodo_id: str,
+    payload: LatidoRequest,
+    repositorio: RepositorioCandidatos = Depends(repo_candidatos),
+) -> dict:
+    """Heartbeat HTTP. El WebSocket acepta el mismo latido como mensaje
+    `{"tipo": "latido", ...}`; este endpoint es el canal de respaldo y el
+    que usa el nodo de escritorio (cliente HTTP bloqueante)."""
+    latido = Latido(
+        nodo_id=nodo_id,
+        consultas_en_curso=payload.consultas_en_curso,
+        acepta_trabajo=payload.acepta_trabajo,
+        timestamp_unix=payload.timestamp_unix or int(time.time()),
+    )
+    estado = estado_efectivo(latido)
+    actualizado = await repositorio.actualizar_latido(
+        nodo_id=nodo_id,
+        estado=estado,
+        consultas_en_curso=latido.consultas_en_curso,
+        momento_unix=float(latido.timestamp_unix),
+    )
+    if not actualizado:
+        raise HTTPException(status_code=404, detail="Nodo desconocido")
+    return {"nodo_id": nodo_id, "estado": estado.name}

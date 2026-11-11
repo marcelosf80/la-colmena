@@ -105,3 +105,48 @@ async def test_creditos_acumulan_aportes_y_consumos(pool) -> None:
 
     assert await repo.saldos(cuenta) == (40.0, 15.0)
     assert await repo.saldos("cuenta-sin-asientos") == (0.0, 0.0)
+
+
+async def test_latido_persiste_estado_y_carga(pool, modelo_hash: str) -> None:
+    repo = RepositorioCandidatosPostgres(pool)
+    nodo_id = f"nodo-hb-{uuid4()}"
+    await repo.registrar(_candidato(nodo_id, modelo_hash))
+
+    actualizado = await repo.actualizar_latido(
+        nodo_id, EstadoNodo.OCUPADO, consultas_en_curso=3, momento_unix=1_000.0
+    )
+
+    assert actualizado is True
+    candidato = (await repo.listar_por_modelo(modelo_hash))[0]
+    assert candidato.nodo.estado is EstadoNodo.OCUPADO
+    assert candidato.consultas_en_curso == 3
+
+
+async def test_latido_de_nodo_inexistente_devuelve_false(pool) -> None:
+    repo = RepositorioCandidatosPostgres(pool)
+
+    assert (
+        await repo.actualizar_latido(
+            f"fantasma-{uuid4()}", EstadoNodo.CONECTADO, 0, momento_unix=1_000.0
+        )
+        is False
+    )
+
+
+async def test_vigilante_marca_caidos_sin_latido(pool, modelo_hash: str) -> None:
+    repo = RepositorioCandidatosPostgres(pool)
+    vivo = f"nodo-vivo-{uuid4()}"
+    vencido = f"nodo-vencido-{uuid4()}"
+    await repo.registrar(_candidato(vivo, modelo_hash))
+    await repo.registrar(_candidato(vencido, modelo_hash))
+    await repo.actualizar_latido(vivo, EstadoNodo.CONECTADO, 0, momento_unix=1_095.0)
+    await repo.actualizar_latido(vencido, EstadoNodo.CONECTADO, 0, momento_unix=1_000.0)
+
+    caidos = await repo.marcar_caidos_sin_latido(ahora_unix=1_100.0, timeout_s=30)
+
+    assert caidos == [vencido]
+    estados = {
+        c.nodo.nodo_id: c.nodo.estado
+        for c in await repo.listar_por_modelo(modelo_hash)
+    }
+    assert estados[vivo] is EstadoNodo.CONECTADO

@@ -79,3 +79,45 @@ async def test_repo_creditos_memoria_implementa_protocolo_y_valida_monto() -> No
 
     with pytest.raises(ValueError):
         await repo.registrar_asiento("c1", TipoAsiento.CONSUMO, 0)
+
+
+@pytest.mark.asyncio
+async def test_latido_actualiza_estado_y_carga_del_candidato() -> None:
+    repo = RepositorioCandidatosEnMemoria()
+    await repo.registrar(_candidato("n1"))
+
+    actualizado = await repo.actualizar_latido(
+        "n1", EstadoNodo.OCUPADO, consultas_en_curso=2, momento_unix=100.0
+    )
+
+    assert actualizado is True
+    candidato = (await repo.listar_por_modelo("hash-1"))[0]
+    assert candidato.nodo.estado is EstadoNodo.OCUPADO
+    assert candidato.consultas_en_curso == 2
+
+
+@pytest.mark.asyncio
+async def test_latido_de_nodo_desconocido_devuelve_false() -> None:
+    repo = RepositorioCandidatosEnMemoria()
+
+    assert (
+        await repo.actualizar_latido(
+            "fantasma", EstadoNodo.CONECTADO, consultas_en_curso=0, momento_unix=100.0
+        )
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_vigilante_marca_caidos_y_no_repite() -> None:
+    repo = RepositorioCandidatosEnMemoria()
+    await repo.registrar(_candidato("n1"))
+    await repo.registrar(_candidato("n2"))
+    await repo.actualizar_latido("n1", EstadoNodo.CONECTADO, 0, momento_unix=1_000.0)
+    await repo.actualizar_latido("n2", EstadoNodo.CONECTADO, 0, momento_unix=1_095.0)
+
+    caidos = await repo.marcar_caidos_sin_latido(ahora_unix=1_100.0, timeout_s=30)
+
+    assert caidos == ["n1"]
+    # Una segunda pasada no vuelve a reportar al ya caído (n2 sigue al día).
+    assert await repo.marcar_caidos_sin_latido(ahora_unix=1_110.0, timeout_s=30) == []

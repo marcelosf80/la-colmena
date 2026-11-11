@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS nodos (
     tokens_por_segundo DOUBLE PRECISION NOT NULL,
     estado TEXT NOT NULL
 );
+-- Columna agregada después del esquema inicial: ALTER idempotente para
+-- bases ya creadas (no hay migraciones versionadas todavía).
+ALTER TABLE nodos ADD COLUMN IF NOT EXISTS ultimo_latido TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS candidatos (
     modelo_hash TEXT NOT NULL,
@@ -77,14 +80,15 @@ class RepositorioCandidatosPostgres:
                     """
                     INSERT INTO nodos
                         (nodo_id, ram_donada_mb, cores_donados, tiene_gpu,
-                         tokens_por_segundo, estado)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                         tokens_por_segundo, estado, ultimo_latido)
+                    VALUES ($1, $2, $3, $4, $5, $6, now())
                     ON CONFLICT (nodo_id) DO UPDATE SET
                         ram_donada_mb = EXCLUDED.ram_donada_mb,
                         cores_donados = EXCLUDED.cores_donados,
                         tiene_gpu = EXCLUDED.tiene_gpu,
                         tokens_por_segundo = EXCLUDED.tokens_por_segundo,
-                        estado = EXCLUDED.estado
+                        estado = EXCLUDED.estado,
+                        ultimo_latido = now()
                     """,
                     candidato.nodo.nodo_id,
                     candidato.nodo.ram_donada_mb,
@@ -132,6 +136,50 @@ class RepositorioCandidatosPostgres:
             """
         )
         return [_fila_a_candidato(fila) for fila in filas]
+
+    async def actualizar_latido(
+        self,
+        nodo_id: str,
+        estado: EstadoNodo,
+        consultas_en_curso: int,
+        momento_unix: float,
+    ) -> bool:
+        async with self._pool.acquire() as conexion:
+            async with conexion.transaction():
+                resultado = await conexion.execute(
+                    """
+                    UPDATE nodos
+                       SET estado = $2, ultimo_latido = to_timestamp($3)
+                     WHERE nodo_id = $1
+                    """,
+                    nodo_id,
+                    estado.name,
+                    momento_unix,
+                )
+                if resultado == "UPDATE 0":
+                    return False
+                await conexion.execute(
+                    "UPDATE candidatos SET consultas_en_curso = $2 WHERE nodo_id = $1",
+                    nodo_id,
+                    consultas_en_curso,
+                )
+                return True
+
+    async def marcar_caidos_sin_latido(
+        self, ahora_unix: float, timeout_s: float
+    ) -> list[str]:
+        filas = await self._pool.fetch(
+            """
+            UPDATE nodos
+               SET estado = 'CAIDO', ultimo_latido = to_timestamp($1)
+             WHERE estado <> 'CAIDO'
+               AND (ultimo_latido IS NULL OR ultimo_latido < to_timestamp($1 - $2))
+            RETURNING nodo_id
+            """,
+            ahora_unix,
+            timeout_s,
+        )
+        return [fila["nodo_id"] for fila in filas]
 
 
 def _fila_a_candidato(fila: asyncpg.Record) -> Candidato:

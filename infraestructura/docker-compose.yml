@@ -7,6 +7,7 @@ services:
     environment:
       COMUNIDAD_IA_ENTORNO: desarrollo
       COMUNIDAD_IA_BD_URL: postgresql://comunidad_ia:cambiar_en_produccion@postgres:5432/comunidad_ia
+      COMUNIDAD_IA_LATIDO_TIMEOUT_S: "30"
     depends_on:
       postgres:
         condition: service_healthy
