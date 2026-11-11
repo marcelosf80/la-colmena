@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -145,11 +146,10 @@ def test_consulta_se_despacha_por_websocket_al_primer_nodo() -> None:
             assert asignacion["siguiente_nodo_id"] == nodo_b
 
         # Al cerrarse el canal, el nodo se marca CAIDO. El cierre es
-        # asincrónico en el servidor: esperamos a que el estado llegue.
-        import time
-
+        # asincrónico en el servidor y su entrega depende de la versión de
+        # starlette: esperamos hasta 10 s antes de dar el estado por bueno.
         estados = {}
-        for _ in range(50):
+        for _ in range(200):
             listado = cliente.get(f"/nodos/{modelo}").json()
             estados = {c["nodo_id"]: c["estado"] for c in listado}
             if estados.get(nodo_a) == "CAIDO":
