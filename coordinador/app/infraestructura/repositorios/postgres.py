@@ -149,7 +149,7 @@ class RepositorioCandidatosPostgres:
                 resultado = await conexion.execute(
                     """
                     UPDATE nodos
-                       SET estado = $2, ultimo_latido = to_timestamp($3)
+                       SET estado = $2, ultimo_latido = to_timestamp($3::double precision)
                      WHERE nodo_id = $1
                     """,
                     nodo_id,
@@ -171,9 +171,10 @@ class RepositorioCandidatosPostgres:
         filas = await self._pool.fetch(
             """
             UPDATE nodos
-               SET estado = 'CAIDO', ultimo_latido = to_timestamp($1)
+               SET estado = 'CAIDO', ultimo_latido = to_timestamp($1::double precision)
              WHERE estado <> 'CAIDO'
-               AND (ultimo_latido IS NULL OR ultimo_latido < to_timestamp($1 - $2))
+               AND (ultimo_latido IS NULL
+                    OR ultimo_latido < to_timestamp($1::double precision - $2::double precision))
             RETURNING nodo_id
             """,
             ahora_unix,

@@ -21,6 +21,7 @@ de asignarle trabajo hasta que vuelva a registrarse y latir.
 
 from __future__ import annotations
 
+import logging
 import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -28,6 +29,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.dominio.heartbeat import Latido, estado_efectivo
 from app.dominio.nodos import EstadoNodo
 from app.infraestructura.repositorios.base import RepositorioCandidatos
+
+registro = logging.getLogger("la_colmena")
 
 router = APIRouter()
 
@@ -77,12 +80,15 @@ class GestorConexiones:
 
 
 async def _marcar_caido(repositorio: RepositorioCandidatos, nodo_id: str) -> None:
-    await repositorio.actualizar_latido(
-        nodo_id=nodo_id,
-        estado=EstadoNodo.CAIDO,
-        consultas_en_curso=0,
-        momento_unix=time.time(),
-    )
+    try:
+        await repositorio.actualizar_latido(
+            nodo_id=nodo_id,
+            estado=EstadoNodo.CAIDO,
+            consultas_en_curso=0,
+            momento_unix=time.time(),
+        )
+    except Exception:  # noqa: BLE001 - el canal no debe morir por un error de BD
+        registro.exception("no se pudo marcar CAIDO a %s tras desconección", nodo_id)
 
 
 @router.websocket("/ws/nodos/{nodo_id}")
@@ -104,12 +110,15 @@ async def canal_nodo(websocket: WebSocket, nodo_id: str) -> None:
                 acepta_trabajo=bool(mensaje.get("acepta_trabajo", True)),
                 timestamp_unix=int(time.time()),
             )
-            await repositorio.actualizar_latido(
-                nodo_id=nodo_id,
-                estado=estado_efectivo(latido),
-                consultas_en_curso=latido.consultas_en_curso,
-                momento_unix=float(latido.timestamp_unix),
-            )
+            try:
+                await repositorio.actualizar_latido(
+                    nodo_id=nodo_id,
+                    estado=estado_efectivo(latido),
+                    consultas_en_curso=latido.consultas_en_curso,
+                    momento_unix=float(latido.timestamp_unix),
+                )
+            except Exception:  # noqa: BLE001
+                registro.exception("latido de %s no se pudo persistir", nodo_id)
     except WebSocketDisconnect:
         pass
     finally:
