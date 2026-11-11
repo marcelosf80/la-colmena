@@ -160,7 +160,7 @@ class RepositorioTrabajosPostgres:
             """
             INSERT INTO trabajos
                 (trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado)
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1::uuid, $2, $3, $4, $5)
             ON CONFLICT (trabajo_id) DO UPDATE SET
                 estado = EXCLUDED.estado,
                 cadena_nodo_ids = EXCLUDED.cadena_nodo_ids
