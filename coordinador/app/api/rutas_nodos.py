@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.dependencias import repo_candidatos
 from app.dominio.nodos import Candidato, EstadoNodo, Nodo
-from app.infraestructura.repositorios.candidatos import RepositorioCandidatosEnMemoria
+from app.infraestructura.repositorios.base import RepositorioCandidatos
 
 router = APIRouter(prefix="/nodos", tags=["nodos"])
-
-# Instancia única para el MVP en memoria. Pasará a inyección de dependencias
-# de FastAPI cuando se conecte Postgres.
-_repositorio = RepositorioCandidatosEnMemoria()
 
 
 class RegistroNodoRequest(BaseModel):
@@ -26,7 +23,10 @@ class RegistroNodoRequest(BaseModel):
 
 
 @router.post("/registro", status_code=201)
-def registrar_nodo(payload: RegistroNodoRequest) -> dict[str, str]:
+async def registrar_nodo(
+    payload: RegistroNodoRequest,
+    repositorio: RepositorioCandidatos = Depends(repo_candidatos),
+) -> dict[str, str]:
     nodo = Nodo(
         nodo_id=payload.nodo_id,
         ram_donada_mb=payload.ram_donada_mb,
@@ -40,13 +40,16 @@ def registrar_nodo(payload: RegistroNodoRequest) -> dict[str, str]:
         posicion=payload.posicion,
         nodo=nodo,
     )
-    _repositorio.registrar(candidato)
+    await repositorio.registrar(candidato)
     return {"estado": "registrado", "nodo_id": nodo.nodo_id}
 
 
 @router.get("/{modelo_hash}")
-def listar_candidatos(modelo_hash: str) -> list[dict]:
-    candidatos = _repositorio.listar_por_modelo(modelo_hash)
+async def listar_candidatos(
+    modelo_hash: str,
+    repositorio: RepositorioCandidatos = Depends(repo_candidatos),
+) -> list[dict]:
+    candidatos = await repositorio.listar_por_modelo(modelo_hash)
     if not candidatos:
         raise HTTPException(status_code=404, detail="Sin nodos para ese modelo")
     return [
@@ -58,7 +61,3 @@ def listar_candidatos(modelo_hash: str) -> list[dict]:
         }
         for c in candidatos
     ]
-
-
-def obtener_repositorio() -> RepositorioCandidatosEnMemoria:
-    return _repositorio

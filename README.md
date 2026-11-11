@@ -18,7 +18,7 @@ como abejas aportando a una colmena.
 ## Badges
 
 ![Estado](https://img.shields.io/badge/estado-fase%200%20%2B%20esqueleto%20fase%201-FFB300)
-![Tests](https://img.shields.io/badge/tests-33%20pasando-4CAF50)
+![Tests](https://img.shields.io/badge/tests-40%20pasando-4CAF50)
 ![Lenguajes](https://img.shields.io/badge/Python-FastAPI-3776AB?logo=python&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-daemon%20nodo-DEA584?logo=rust&logoColor=black)
 ![Protocolo](https://img.shields.io/badge/protocolo-Protobuf%20v1-A2AAFF)
@@ -44,10 +44,10 @@ Usuario ──► Coordinador ──► [Nodo 0] ──► [Nodo 1] ──► [N
 
 | Componente | Stack | Rol | Estado |
 |---|---|---|---|
-| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, arma cadenas, lleva créditos | ✅ 12 tests |
+| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, arma cadenas, lleva créditos | ✅ 19 tests |
 | [`nodo-escritorio/`](nodo-escritorio/) | Rust | Daemon del usuario: heartbeat, políticas de recursos, motor de inferencia | ✅ 21 tests (motor = stub) |
 | [`packages/protocolo/`](packages/protocolo/) | Protobuf v1 | Contrato compartido por todas las implementaciones | ✅ |
-| [`infraestructura/`](infraestructura/) | docker-compose | Coordinador + Postgres 17 + Redis 7 | ✅ Postgres/Redis aún sin conectar |
+| [`infraestructura/`](infraestructura/) | docker-compose | Coordinador + Postgres 17 + Redis 7 | ✅ Postgres conectado |
 | Nodo Android | Kotlin | Mismo rol del nodo de escritorio, con restricciones de batería/red | 🔜 pendiente |
 
 ## Arquitectura del coordinador
@@ -57,7 +57,7 @@ Decisiones destacadas:
 
 - **Planificador como función pura** sin I/O: dado el estado de candidatos, arma la cadena eligiendo el nodo menos cargado por posición. Testeable sin base de datos ni red.
 - **Detección de puntos únicos de falla**: posiciones con un solo candidato disponible se priorizan al asignar nodos nuevos.
-- **Arquitectura hexagonal**: dominio limpio, repositorios intercambiables (hoy memoria, mañana Postgres/Redis).
+- **Arquitectura hexagonal**: dominio limpio, repositorios intercambiables. Hoy hay dos implementaciones: **en memoria** (dev/tests) y **Postgres** (producción), con la misma interfaz async. Ver [`docs/persistencia.md`](docs/persistencia.md).
 
 ## Ejemplos
 
@@ -96,18 +96,25 @@ docker compose up --build
 **Tests:**
 
 ```bash
-cd coordinador && pytest tests/unitarios -v   # 12 tests
+cd coordinador && pytest tests/unitarios -v   # 19 tests
 cd nodo-escritorio && cargo test              # 21 tests
+```
+
+**Con Postgres local:**
+
+```bash
+export COMUNIDAD_IA_BD_URL="postgresql://comunidad_ia:cambiar_en_produccion@localhost:5432/comunidad_ia"
+uvicorn app.main:app --reload   # desde coordinador/
 ```
 
 ## Hoja de ruta
 
 - [x] Esquema Protobuf del protocolo
 - [x] Coordinador: dominio + API base (nodos, usuarios, créditos, planificador)
+- [x] Persistencia Postgres (repositorios async, esquema idempotente, CI con base real)
 - [x] Nodo de escritorio: registro, heartbeat local, políticas de recursos, control de usuario
 - [ ] Bind real de `llama.cpp` en el nodo (hoy `MotorSimulado`)
 - [ ] Heartbeat real + WebSocket para despachar trabajo
-- [ ] Persistencia en Postgres/Redis (hoy todo en memoria)
 - [ ] Verificación de aportes por réplicas
 - [ ] Nodo Android (Kotlin)
 - [ ] Descentralización del coordinador ([discusión abierta](docs/arquitectura.md))

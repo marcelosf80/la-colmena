@@ -11,6 +11,22 @@ jobs:
     defaults:
       run:
         working-directory: coordinador
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: comunidad_ia
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: comunidad_ia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U comunidad_ia -d comunidad_ia"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      COMUNIDAD_IA_BD_URL: postgresql://comunidad_ia:postgres@localhost:5432/comunidad_ia
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,7 +35,10 @@ jobs:
           cache: pip
           cache-dependency-path: coordinador/requirements.txt
       - run: pip install -r requirements.txt
-      - run: python -m pytest tests/unitarios -v
+      - name: Tests unitarios y de API
+        run: python -m pytest tests/unitarios -v
+      - name: Tests de integración Postgres
+        run: python -m pytest tests/integraciones -v
 
   nodo-escritorio:
     runs-on: ubuntu-latest

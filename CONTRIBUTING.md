@@ -54,7 +54,8 @@ docker compose up --build
   un test unitario.
 - **El dominio no importa FastAPI ni I/O.** Arquitectura hexagonal: la
   lógica vive en `app/dominio/`, la red en `app/api/`, la persistencia en
-  `app/infraestructura/`.
+  `app/infraestructura/`. Los endpoints son `async` y los repositorios se
+  inyectan con `Depends` (ver [`docs/persistencia.md`](docs/persistencia.md)).
 - **Sin credenciales ni datos reales** en el código. Usá `.env` (gitignored).
 - **Commits en español, pequeños y descriptivos.**
 
@@ -65,12 +66,12 @@ file matters most.
 
 | Área | Tipo de tarea |
 |---|---|
-| `coordinador/app/infraestructura` | Repositorios Postgres/Redis para reemplazar los de memoria |
+| `coordinador/app/infraestructura` | Migraciones versionadas (alembic), cache/cola en Redis |
 | `nodo-escritorio/src/ejecutor_modelo.rs` | Bind de `llama.cpp` (crate `llama-cpp-2` o FFI) |
 | `nodo-escritorio` | Heartbeat real + WebSocket con tokio-tungstenite |
 | `docs/` | ADRs, decisiones abiertas (descentralización del coordinador) |
-| `infraestructura/` | Conectar Postgres/Redis al coordinador en el compose |
-| CI | GitHub Actions para pytest + cargo test |
+| `infraestructura/` | Métricas, healthchecks (Prometheus/Grafana) |
+| CI | Cobertura de tests, linting (ruff/clippy) |
 
 ## Estilo
 
