@@ -144,9 +144,17 @@ def test_consulta_se_despacha_por_websocket_al_primer_nodo() -> None:
             assert asignacion["cadena"] == [nodo_a, nodo_b]
             assert asignacion["siguiente_nodo_id"] == nodo_b
 
-        # Al cerrarse el canal, el nodo se marca CAIDO.
-        listado = cliente.get(f"/nodos/{modelo}").json()
-        estados = {c["nodo_id"]: c["estado"] for c in listado}
+        # Al cerrarse el canal, el nodo se marca CAIDO. El cierre es
+        # asincrónico en el servidor: esperamos a que el estado llegue.
+        import time
+
+        estados = {}
+        for _ in range(50):
+            listado = cliente.get(f"/nodos/{modelo}").json()
+            estados = {c["nodo_id"]: c["estado"] for c in listado}
+            if estados.get(nodo_a) == "CAIDO":
+                break
+            time.sleep(0.05)
         assert estados[nodo_a] == "CAIDO"
 
         estado_trabajo = cliente.get(f"/consultas/{cuerpo['trabajo_id']}").json()
