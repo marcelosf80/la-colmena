@@ -18,7 +18,7 @@ como abejas aportando a una colmena.
 ## Badges
 
 ![Estado](https://img.shields.io/badge/estado-fase%200%20%2B%20esqueleto%20fase%201-FFB300)
-![Tests](https://img.shields.io/badge/tests-31%20%2B%20nodo%20%2B%20integracion-4CAF50)
+![Tests](https://img.shields.io/badge/tests-35%20%2B%20nodo%20%2B%20integracion-4CAF50)
 ![Lenguajes](https://img.shields.io/badge/Python-FastAPI-3776AB?logo=python&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-daemon%20nodo-DEA584?logo=rust&logoColor=black)
 ![Protocolo](https://img.shields.io/badge/protocolo-Protobuf%20v1-A2AAFF)
@@ -44,7 +44,7 @@ Usuario ──► Coordinador ──► [Nodo 0] ──► [Nodo 1] ──► [N
 
 | Componente | Stack | Rol | Estado |
 |---|---|---|---|
-| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, arma cadenas, lleva créditos, despacha por WS | ✅ 31 tests |
+| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, arma cadenas, lleva créditos, despacha por WS | ✅ 35 tests |
 | [`nodo-escritorio/`](nodo-escritorio/) | Rust | Daemon del usuario: registro, heartbeat real, políticas de recursos, control de usuario, canal WebSocket de despacho | ✅ motor = stub |
 | [`packages/protocolo/`](packages/protocolo/) | Protobuf v1 | Contrato compartido por todas las implementaciones | ✅ |
 | [`infraestructura/`](infraestructura/) | docker-compose | Coordinador + Postgres 17 + Redis 7 | ✅ Postgres conectado |
@@ -101,7 +101,7 @@ docker compose up --build
 **Tests:**
 
 ```bash
-cd coordinador && pytest tests/unitarios -v   # 31 tests
+cd coordinador && pytest tests/unitarios -v   # 35 tests
 cd nodo-escritorio && cargo test              # 32 tests
 ```
 
