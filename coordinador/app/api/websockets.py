@@ -91,6 +91,21 @@ async def _marcar_caido(repositorio: RepositorioCandidatos, nodo_id: str) -> Non
         registro.exception("no se pudo marcar CAIDO a %s tras desconección", nodo_id)
 
 
+async def despedir_nodo(
+    gestor: GestorConexiones,
+    repositorio: RepositorioCandidatos,
+    nodo_id: str,
+    websocket: WebSocket,
+) -> None:
+    """Al perder el canal: desregistrar la conexión y marcar CAIDO al nodo
+    para que el planificador deje de asignarle trabajo hasta que reconecte.
+    Función separada del handler para poder testearla sin un WebSocket real.
+    """
+    if await gestor.desconectar(nodo_id, websocket):
+        registro.info("nodo %s desconectado: marcando CAIDO", nodo_id)
+        await _marcar_caido(repositorio, nodo_id)
+
+
 @router.websocket("/ws/nodos/{nodo_id}")
 async def canal_nodo(websocket: WebSocket, nodo_id: str) -> None:
     gestor: GestorConexiones = websocket.app.state.gestor_conexiones
@@ -122,6 +137,4 @@ async def canal_nodo(websocket: WebSocket, nodo_id: str) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        if await gestor.desconectar(nodo_id, websocket):
-            registro.info("nodo %s desconectado: marcando CAIDO", nodo_id)
-            await _marcar_caido(repositorio, nodo_id)
+        await despedir_nodo(gestor, repositorio, nodo_id, websocket)

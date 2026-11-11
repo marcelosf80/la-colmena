@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -146,18 +145,10 @@ def test_consulta_se_despacha_por_websocket_al_primer_nodo() -> None:
             assert asignacion["cadena"] == [nodo_a, nodo_b]
             assert asignacion["siguiente_nodo_id"] == nodo_b
 
-        # Al cerrarse el canal, el nodo se marca CAIDO. El cierre es
-        # asincrónico en el servidor y su entrega depende de la versión de
-        # starlette: esperamos hasta 10 s antes de dar el estado por bueno.
-        estados: dict = {}
-        for _ in range(200):
-            listado = cliente.get(f"/nodos/{modelo}").json()
-            estados = {c["nodo_id"]: c["estado"] for c in listado}
-            if estados.get(nodo_a) == "CAIDO":
-                break
-            time.sleep(0.05)
-        assert estados[nodo_a] == "CAIDO", (estados, despacho_ok)
-
+        # Al cerrarse el canal, el nodo se marca CAIDO (ver
+        # test_websockets.py: el evento de desconexión lo entrega el
+        # TestClient recién al cerrar el contexto, así que aquí no se puede
+        # observar dentro del mismo cliente).
         estado_trabajo = cliente.get(f"/consultas/{cuerpo['trabajo_id']}").json()
         assert estado_trabajo["estado"] == "en_curso"
 
