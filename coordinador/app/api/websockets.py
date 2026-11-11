@@ -123,4 +123,5 @@ async def canal_nodo(websocket: WebSocket, nodo_id: str) -> None:
         pass
     finally:
         if await gestor.desconectar(nodo_id, websocket):
+            registro.info("nodo %s desconectado: marcando CAIDO", nodo_id)
             await _marcar_caido(repositorio, nodo_id)

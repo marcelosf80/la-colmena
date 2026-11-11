@@ -136,6 +136,7 @@ def test_consulta_se_despacha_por_websocket_al_primer_nodo() -> None:
             )
             assert respuesta.status_code == 202
             cuerpo = respuesta.json()
+            despacho_ok = cuerpo["despachado"]
             assert cuerpo["despachado"] is True
             assert cuerpo["estado"] == "en_curso"
 
@@ -148,14 +149,14 @@ def test_consulta_se_despacha_por_websocket_al_primer_nodo() -> None:
         # Al cerrarse el canal, el nodo se marca CAIDO. El cierre es
         # asincrónico en el servidor y su entrega depende de la versión de
         # starlette: esperamos hasta 10 s antes de dar el estado por bueno.
-        estados = {}
+        estados: dict = {}
         for _ in range(200):
             listado = cliente.get(f"/nodos/{modelo}").json()
             estados = {c["nodo_id"]: c["estado"] for c in listado}
             if estados.get(nodo_a) == "CAIDO":
                 break
             time.sleep(0.05)
-        assert estados[nodo_a] == "CAIDO"
+        assert estados[nodo_a] == "CAIDO", (estados, despacho_ok)
 
         estado_trabajo = cliente.get(f"/consultas/{cuerpo['trabajo_id']}").json()
         assert estado_trabajo["estado"] == "en_curso"
