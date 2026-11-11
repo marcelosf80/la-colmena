@@ -144,7 +144,10 @@ async def test_vigilante_marca_caidos_sin_latido(pool, modelo_hash: str) -> None
 
     caidos = await repo.marcar_caidos_sin_latido(ahora_unix=1_100.0, timeout_s=30)
 
-    assert caidos == [vencido]
+    # Otros tests pueden dejar nodos con latidos viejos en la base: el
+    # vigilante también los marca. Solo verificamos el comportamiento propio.
+    assert vencido in caidos
+    assert vivo not in caidos
     estados = {
         c.nodo.nodo_id: c.nodo.estado
         for c in await repo.listar_por_modelo(modelo_hash)
