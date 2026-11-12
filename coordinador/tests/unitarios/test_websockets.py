@@ -4,9 +4,13 @@ import time
 
 import pytest
 
-from app.api.websockets import GestorConexiones, despedir_nodo
+from app.api.websockets import GestorConexiones, _procesar_resultado, despedir_nodo
 from app.dominio.nodos import Candidato, EstadoNodo, Nodo
-from app.infraestructura.repositorios.candidatos import RepositorioCandidatosEnMemoria
+from app.dominio.trabajos import EstadoTrabajo, Trabajo
+from app.infraestructura.repositorios.candidatos import (
+    RepositorioCandidatosEnMemoria,
+    RepositorioTrabajosEnMemoria,
+)
 
 
 class WebSocketFalso:
@@ -94,3 +98,54 @@ async def test_enviar_entrega_y_limpia_conexiones_rotas() -> None:
 
     assert await gestor.enviar("n1", {"tipo": "asignacion"}) is False
     assert gestor.conectados() == []
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_exitoso_completa_el_trabajo() -> None:
+    repositorio = RepositorioTrabajosEnMemoria()
+    await repositorio.guardar(
+        Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
+    )
+
+    await _procesar_resultado(
+        repositorio,
+        {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola"},
+    )
+
+    trabajo = await repositorio.obtener("t1")
+    assert trabajo.estado is EstadoTrabajo.COMPLETADO
+    assert trabajo.texto_resultado == "hola"
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_fallido_marca_fallido_con_el_error() -> None:
+    repositorio = RepositorioTrabajosEnMemoria()
+    await repositorio.guardar(
+        Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
+    )
+
+    await _procesar_resultado(
+        repositorio,
+        {"tipo": "resultado", "trabajo_id": "t1", "exito": False, "error": "timeout"},
+    )
+
+    trabajo = await repositorio.obtener("t1")
+    assert trabajo.estado is EstadoTrabajo.FALLIDO
+    assert trabajo.error == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_sin_trabajo_id_no_rompe_el_canal() -> None:
+    repositorio = RepositorioTrabajosEnMemoria()
+    # No debe lanzar, solo loguear y seguir.
+    await _procesar_resultado(repositorio, {"tipo": "resultado", "exito": True})
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_de_trabajo_desconocido_no_rompe_el_canal() -> None:
+    repositorio = RepositorioTrabajosEnMemoria()
+    await _procesar_resultado(
+        repositorio,
+        {"tipo": "resultado", "trabajo_id": "no-existe", "exito": True, "texto": "x"},
+    )
+    assert await repositorio.obtener("no-existe") is None

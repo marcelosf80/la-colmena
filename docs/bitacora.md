@@ -7,6 +7,50 @@ hoy*, qué se verificó realmente y qué le falta contar a quien se sume
 después. Se actualiza cada vez que el estado general cambia de forma
 relevante (no en cada commit).
 
+## 2026-11-12 — Resultado de vuelta al coordinador
+
+Se cerró el gap que la entrada anterior marcaba como más urgente: ahora la
+respuesta generada por el nodo **vuelve al coordinador** por el mismo
+WebSocket y el usuario la lee con `GET /consultas/{trabajo_id}`.
+
+**Qué cambió**
+
+- Coordinador: `Trabajo` suma `texto_resultado` y `error`;
+  `dominio/trabajos.py::aplicar_resultado` (función pura, idempotente sobre
+  estados terminales); `api/websockets.py` despacha el mensaje `resultado`
+  a `_procesar_resultado`; Postgres suma las columnas (`ALTER TABLE ... ADD
+  COLUMN IF NOT EXISTS`, aplica solo en bases existentes al arrancar).
+- Nodo: `canal_trabajo.rs` pasó a ser **bidireccional**. `iniciar` devuelve
+  además un `Sender<MensajeResultado>`; el hilo del socket usa timeout de
+  lectura de 200 ms para alternar entre vaciar la cola de salida y leer.
+  `main.rs` envía `exitoso`/`fallido` tras cada asignación.
+
+**Verificación**
+
+- Coordinador: **44 tests** pasan (35 + 9 nuevos).
+- Nodo: **35 tests** pasan (32 + 3 nuevos), compilado en una copia
+  descartable con `url`/`idna`/`encoding_rs` fijados (ver deuda técnica #4
+  de la entrada anterior; el `Cargo.toml`/`Cargo.lock` del repo no se
+  tocaron).
+- **Prueba end-to-end real** (coordinador en memoria + binario del nodo con
+  motor simulado): consulta → `en_curso` → `completado` con
+  `texto_resultado` correcto.
+- **No verificado**: el flujo con `llama-server` real (no hay binario ni
+  pesos en el entorno de desarrollo) y los tests de integración contra
+  Postgres real (los corre CI). Conviene mirar el resultado de CI.
+
+**Deuda / pendiente que queda**
+
+- El resultado hoy es siempre "final": en una cadena de varios nodos cada
+  uno procesa el prompt por su cuenta y reporta. Falta el pipeline real
+  (reenviar la activación a `siguiente_nodo_id`, solo el último reporta).
+- El timeout de lectura de 200 ms solo se aplica en `ws://` (variante
+  `Plain`); con `wss://` el hilo volvería a leer bloqueante y los resultados
+  esperarían al próximo mensaje entrante. Resolver antes de usar TLS.
+- Si el nodo se cae entre procesar y enviar, el resultado se pierde (la cola
+  de salida es en memoria) y el trabajo queda `en_curso`: falta un timeout de
+  trabajo en el coordinador.
+
 ## 2026-11-11 — Relevamiento de estado
 
 El proyecto avanzó en paralelo en dos frentes de trabajo (este repo llegó
@@ -85,11 +129,8 @@ recibo_local.rs          registro local append-only de trabajo hecho
 
 ### Qué falta (repite la hoja de ruta del README, pero con contexto de por qué importa cada ítem)
 
-- **Resultado parcial/final de vuelta al coordinador**: hoy el nodo genera
-  texto con `llama-server` y lo registra en su recibo local, pero esa
-  respuesta no vuelve al coordinador por el canal WebSocket. Sin esto, el
-  usuario que hizo la consulta original nunca ve la respuesta — es el
-  gap más urgente para tener un flujo end-to-end real.
+- ~~**Resultado de vuelta al coordinador**~~: **resuelto el 2026-11-12**
+  (ver entrada de arriba). Queda el pipeline multi-nodo real.
 - **Cola con reintento**: si el nodo asignado no tiene canal abierto, el
   trabajo queda `en_cola` sin mecanismo de reintento automático.
 - **Verificación por réplicas**: sigue pendiente el gap de seguridad más

@@ -15,6 +15,10 @@ Coordinador → nodo:
 Nodo → coordinador (opcional, heartbeat por el mismo canal):
     {"tipo": "latido", "consultas_en_curso": 2, "acepta_trabajo": true}
 
+Nodo → coordinador (resultado de una asignación ya procesada):
+    {"tipo": "resultado", "trabajo_id": "...", "exito": true,
+     "texto": "...", "error": ""}
+
 Si el nodo se desconecta, se marca CAIDO de inmediato: el planificador deja
 de asignarle trabajo hasta que vuelva a registrarse y latir.
 """
@@ -28,7 +32,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.dominio.heartbeat import Latido, estado_efectivo
 from app.dominio.nodos import EstadoNodo
-from app.infraestructura.repositorios.base import RepositorioCandidatos
+from app.dominio.trabajos import aplicar_resultado
+from app.infraestructura.repositorios.base import RepositorioCandidatos, RepositorioTrabajos
 
 registro = logging.getLogger("la_colmena")
 
@@ -91,6 +96,33 @@ async def _marcar_caido(repositorio: RepositorioCandidatos, nodo_id: str) -> Non
         registro.exception("no se pudo marcar CAIDO a %s tras desconección", nodo_id)
 
 
+async def _procesar_resultado(repositorio_trabajos: RepositorioTrabajos, mensaje: dict) -> None:
+    """Aplica un mensaje `resultado` al trabajo correspondiente.
+
+    Separada del handler (igual que `_marcar_caido`) para poder testearla
+    sin WebSocket real, y para que un mensaje malformado o un trabajo
+    desconocido no tire abajo el canal completo.
+    """
+    trabajo_id = mensaje.get("trabajo_id")
+    if not trabajo_id:
+        registro.warning("mensaje 'resultado' sin trabajo_id, se ignora")
+        return
+    try:
+        trabajo = await repositorio_trabajos.obtener(trabajo_id)
+        if trabajo is None:
+            registro.warning("resultado para trabajo desconocido %s, se ignora", trabajo_id)
+            return
+        trabajo = aplicar_resultado(
+            trabajo,
+            exito=bool(mensaje.get("exito", False)),
+            texto=str(mensaje.get("texto", "")),
+            error=str(mensaje.get("error", "")),
+        )
+        await repositorio_trabajos.guardar(trabajo)
+    except Exception:  # noqa: BLE001 - el canal no debe morir por un error de BD
+        registro.exception("no se pudo aplicar el resultado del trabajo %s", trabajo_id)
+
+
 async def despedir_nodo(
     gestor: GestorConexiones,
     repositorio: RepositorioCandidatos,
@@ -110,6 +142,7 @@ async def despedir_nodo(
 async def canal_nodo(websocket: WebSocket, nodo_id: str) -> None:
     gestor: GestorConexiones = websocket.app.state.gestor_conexiones
     repositorio: RepositorioCandidatos = websocket.app.state.repositorio_candidatos
+    repositorio_trabajos: RepositorioTrabajos = websocket.app.state.repositorio_trabajos
 
     await websocket.accept()
     await gestor.conectar(nodo_id, websocket)
@@ -117,8 +150,15 @@ async def canal_nodo(websocket: WebSocket, nodo_id: str) -> None:
     try:
         while True:
             mensaje = await websocket.receive_json()
-            if mensaje.get("tipo") != "latido":
+            tipo = mensaje.get("tipo")
+
+            if tipo == "resultado":
+                await _procesar_resultado(repositorio_trabajos, mensaje)
                 continue
+
+            if tipo != "latido":
+                continue
+
             latido = Latido(
                 nodo_id=nodo_id,
                 consultas_en_curso=int(mensaje.get("consultas_en_curso", 0)),

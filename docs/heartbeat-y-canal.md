@@ -67,6 +67,14 @@ El estado efectivo lo decide el coordinador, no el nodo (ver
 **Nodo → coordinador** (opcional, `latido` por el mismo canal):
 `{"tipo": "latido", "consultas_en_curso": 2, "acepta_trabajo": true}`
 
+**Nodo → coordinador** (`resultado`, cierra una asignación procesada):
+`{"tipo": "resultado", "trabajo_id": "...", "exito": true, "texto": "...", "error": ""}`
+
+El coordinador pasa el trabajo a `COMPLETADO` (guarda `texto_resultado`) o a
+`FALLIDO` (guarda `error`). Un `resultado` sobre un trabajo ya terminal se
+ignora (idempotente ante reenvíos tras una reconexión). El usuario lo lee con
+`GET /consultas/{trabajo_id}` (`texto_resultado` / `error`).
+
 Al desconectarse, el nodo se marca `CAIDO` de inmediato.
 
 ### Consulta y despacho
@@ -99,7 +107,9 @@ El vigilante corre cada `timeout/3`; el peor retraso de detección es
 
 ## Pendiente (Fase 1)
 
-- Resultados: `ResultadoParcial`/`ResultadoFinal` por el canal (hoy el nodo
-  registra un recibo local; el coordinador no recibe activaciones).
+- Pipeline multi-nodo real: hoy el resultado de vuelta es siempre "final"
+  y cada nodo procesa el prompt por su cuenta; falta reenviar la activación
+  a `siguiente_nodo_id` y que solo el último eslabón reporte `resultado`
+  (`ResultadoParcial` sigue sin implementarse).
 - Cola de trabajos `EN_COLA` con reintento automático de despacho.
 - Formalizar el esquema JSON con Protobuf v1.

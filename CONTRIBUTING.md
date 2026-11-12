@@ -22,7 +22,7 @@ cd coordinador
 python3.11 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pytest tests/unitarios -v        # los 35 tests deben pasar
+pytest tests/unitarios -v        # los 44 tests deben pasar
 uvicorn app.main:app --reload    # http://localhost:8000
 ```
 
@@ -30,7 +30,7 @@ uvicorn app.main:app --reload    # http://localhost:8000
 
 ```bash
 cd nodo-escritorio
-cargo test                       # los 32 tests deben pasar
+cargo test                       # los 35 tests deben pasar
 cargo build --release
 ```
 

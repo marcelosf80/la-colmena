@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+use canal_trabajo::MensajeResultado;
 use cliente_coordinador::{url_websocket, ClienteCoordinador, Latido, RegistroNodo};
 use control_usuario::{ControlUsuario, EstadoControl};
 use ejecutor_modelo::{MotorInferencia, MotorSimulado};
@@ -133,7 +134,7 @@ async fn main() -> anyhow::Result<()> {
     // Canal de despacho: el coordinador empuja asignaciones por WebSocket.
     // El hilo reconecta solo; el loop principal decide si acepta el trabajo.
     let (emisor_trabajos, mut receptor_trabajos) = tokio::sync::mpsc::unbounded_channel();
-    let _canal = canal_trabajo::iniciar(
+    let (_canal, emisor_resultados) = canal_trabajo::iniciar(
         url_websocket(&args.coordinador, &args.nodo_id),
         emisor_trabajos,
     );
@@ -203,6 +204,7 @@ async fn main() -> anyhow::Result<()> {
                 match resultado {
                     Ok(Ok(activacion)) => {
                         let tokens = motor_para_tokens.tokens_de_ultima_ejecucion();
+                        let texto = String::from_utf8_lossy(&activacion).into_owned();
                         info!(
                             trabajo_id = %asignacion.trabajo_id,
                             tokens_generados = tokens,
@@ -218,15 +220,33 @@ async fn main() -> anyhow::Result<()> {
                         {
                             warn!(%error, "no se pudo registrar el recibo local");
                         }
-                        // TODO Fase 1: enviar la activación a
-                        // `siguiente_nodo_id` y devolver el resultado al
-                        // coordinador (protocolo de activaciones pendiente).
+                        // TODO Fase 1: si `siguiente_nodo_id` no es None,
+                        // esto todavía no es el último eslabón de la cadena
+                        // (pipeline multi-nodo real) — hoy cada nodo procesa
+                        // el prompt de demostración de forma independiente,
+                        // así que se reporta como resultado final siempre.
+                        // Reenviar la activación al siguiente nodo queda
+                        // pendiente como feature aparte.
+                        if emisor_resultados
+                            .send(MensajeResultado::exitoso(asignacion.trabajo_id.clone(), texto))
+                            .is_err()
+                        {
+                            warn!(trabajo_id = %asignacion.trabajo_id, "no se pudo encolar el resultado: el canal de trabajo se cerró");
+                        }
                     }
                     Ok(Err(error)) => {
                         warn!(trabajo_id = %asignacion.trabajo_id, %error, "el motor no pudo procesar la asignación");
+                        let _ = emisor_resultados.send(MensajeResultado::fallido(
+                            asignacion.trabajo_id.clone(),
+                            error.to_string(),
+                        ));
                     }
                     Err(error) => {
                         warn!(%error, "la tarea del motor falló al ejecutarse");
+                        let _ = emisor_resultados.send(MensajeResultado::fallido(
+                            asignacion.trabajo_id.clone(),
+                            format!("la tarea del motor falló al ejecutarse: {error}"),
+                        ));
                     }
                 }
             }

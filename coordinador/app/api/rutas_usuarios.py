@@ -87,4 +87,6 @@ async def consultar_trabajo(
         "modelo_hash": trabajo.modelo_hash,
         "cadena": trabajo.cadena_nodo_ids,
         "estado": trabajo.estado.name.lower(),
+        "texto_resultado": trabajo.texto_resultado,
+        "error": trabajo.error,
     }

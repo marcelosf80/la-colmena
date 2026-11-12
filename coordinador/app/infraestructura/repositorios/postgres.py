@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS trabajos (
     creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_trabajos_usuario ON trabajos (usuario_id);
+-- Columnas agregadas cuando se sumó el resultado de vuelta por WebSocket.
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS texto_resultado TEXT;
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS error TEXT;
 """
 
 
@@ -208,23 +211,29 @@ class RepositorioTrabajosPostgres:
         await self._pool.execute(
             """
             INSERT INTO trabajos
-                (trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado)
-            VALUES ($1::uuid, $2, $3, $4, $5)
+                (trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
+                 texto_resultado, error)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (trabajo_id) DO UPDATE SET
                 estado = EXCLUDED.estado,
-                cadena_nodo_ids = EXCLUDED.cadena_nodo_ids
+                cadena_nodo_ids = EXCLUDED.cadena_nodo_ids,
+                texto_resultado = EXCLUDED.texto_resultado,
+                error = EXCLUDED.error
             """,
             trabajo.trabajo_id,
             trabajo.usuario_id,
             trabajo.modelo_hash,
             trabajo.cadena_nodo_ids,
             trabajo.estado.name,
+            trabajo.texto_resultado,
+            trabajo.error,
         )
 
     async def obtener(self, trabajo_id: str) -> Trabajo | None:
         fila = await self._pool.fetchrow(
             """
-            SELECT trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado
+            SELECT trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
+                   texto_resultado, error
               FROM trabajos
              WHERE trabajo_id = $1::uuid
             """,
@@ -238,6 +247,8 @@ class RepositorioTrabajosPostgres:
             modelo_hash=fila["modelo_hash"],
             cadena_nodo_ids=list(fila["cadena_nodo_ids"]),
             estado=cast(EstadoTrabajo, EstadoTrabajo[fila["estado"]]),
+            texto_resultado=fila["texto_resultado"],
+            error=fila["error"],
         )
 
 
