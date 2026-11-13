@@ -46,6 +46,11 @@ class RepositorioTrabajos(Protocol):
 
     async def obtener(self, trabajo_id: str) -> Trabajo | None: ...
 
+    async def marcar_vencidos(self, ahora_unix: float, timeout_s: float) -> list[str]:
+        """Marca FALLIDO (timeout) los trabajos EN_CURSO desde hace más de
+        timeout_s. Devuelve los trabajo_id afectados."""
+        ...
+
 
 @runtime_checkable
 class RepositorioCreditos(Protocol):

@@ -7,6 +7,60 @@ hoy*, qué se verificó realmente y qué le falta contar a quien se sume
 después. Se actualiza cada vez que el estado general cambia de forma
 relevante (no en cada commit).
 
+## 2026-11-12 (2) — Timeout de trabajos colgados
+
+Cerró el pendiente que había quedado anotado al final de la entrada
+anterior: si el nodo se cae (o pierde el canal) entre procesar una
+asignación y mandar el `resultado`, el trabajo ya no queda `en_curso` para
+siempre.
+
+**Qué cambió**
+
+- `dominio/trabajos.py::marcar_vencido` (función pura, mismo estilo que
+  `aplicar_resultado`): si el trabajo sigue `EN_CURSO`, lo pasa a `FALLIDO`
+  con `error = MENSAJE_TIMEOUT`. No toca `EN_COLA` a propósito — ver el
+  docstring sobre por qué ese es un problema de cola/reintento, no de
+  timeout.
+- Nuevo vigilante `_vigilar_trabajos_vencidos` en `main.py`, corriendo cada
+  `trabajo_timeout_s / 3`, exactamente el mismo patrón que el vigilante de
+  heartbeats que ya existía (`_vigilar_latidos`).
+- `RepositorioTrabajos` suma `marcar_vencidos(ahora_unix, timeout_s)` al
+  protocolo, con implementación en memoria y Postgres (columna nueva
+  `actualizado_en`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
+- **Unifiqué** `TIMEOUT_TRABAJO_MS` (que ya existía en `rutas_usuarios.py`,
+  pero no se usaba para nada más que informarle el valor al nodo) con la
+  nueva config `trabajo_timeout_s`: ahora hay una sola fuente de verdad
+  para "cuánto tiempo se le da a un trabajo", y el vigilante y el
+  `timeout_ms` que ve el nodo nunca pueden desincronizarse.
+
+**Verificación**
+
+- Coordinador: **50 tests** pasan (44 + 6 nuevos: 4 de dominio, 2 de
+  repositorios en memoria). Sumé 2 tests de integración Postgres más
+  (quedan sin correr acá, los valida CI).
+- Probé la app completa levantada con los dos vigilantes corriendo a la
+  vez (heartbeats + trabajos vencidos) — arranca y atiende requests sin
+  problema.
+- **Importante sobre cómo testear esto**: a diferencia de los nodos
+  (`actualizar_latido` recibe un `momento_unix` explícito, así que los
+  tests pueden usar timestamps sintéticos chicos como `1_100.0`), `Trabajo`
+  no tiene un campo de timestamp propio — `guardar()` estampa el reloj real
+  internamente. Los tests de este timeout usan `time.time()` + offset, no
+  epochs sintéticos. Si alguien agrega más tests de vigilante acá, que siga
+  ese patrón o va a fallar de forma confusa (todo "vencido" o nada, según
+  si el offset sintético cae antes o después del Unix epoch real).
+
+**Pendiente que queda**
+
+- El nodo no sabe que su trabajo venció del lado del coordinador — si
+  vuelve a conectarse y manda el `resultado` tarde, `aplicar_resultado` ya
+  lo ignora (está en estado terminal), pero el nodo gastó cómputo real en
+  un trabajo que nadie va a leer. No es grave, pero vale la pena que el
+  nodo tenga su propio timeout local coherente con `timeout_ms`.
+- Sigue sin existir la cola con reintento (ver entrada de 2026-11-11): un
+  trabajo que nunca se pudo despachar porque no había nodo conectado queda
+  `en_cola` sin que nada vuelva a intentarlo.
+
 ## 2026-11-12 — Resultado de vuelta al coordinador
 
 Se cerró el gap que la entrada anterior marcaba como más urgente: ahora la
@@ -47,9 +101,9 @@ WebSocket y el usuario la lee con `GET /consultas/{trabajo_id}`.
 - El timeout de lectura de 200 ms solo se aplica en `ws://` (variante
   `Plain`); con `wss://` el hilo volvería a leer bloqueante y los resultados
   esperarían al próximo mensaje entrante. Resolver antes de usar TLS.
-- Si el nodo se cae entre procesar y enviar, el resultado se pierde (la cola
-  de salida es en memoria) y el trabajo queda `en_curso`: falta un timeout de
-  trabajo en el coordinador.
+- ~~Si el nodo se cae entre procesar y enviar, el resultado se pierde y el
+  trabajo queda `en_curso` para siempre~~: **resuelto el 2026-11-12 (2)**,
+  ver la entrada de arriba (vigilante de timeout).
 
 ## 2026-11-11 — Relevamiento de estado
 

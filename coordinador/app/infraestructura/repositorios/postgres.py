@@ -14,7 +14,7 @@ import asyncpg
 
 from app.dominio.creditos import TipoAsiento
 from app.dominio.nodos import Candidato, EstadoNodo, Nodo
-from app.dominio.trabajos import EstadoTrabajo, Trabajo
+from app.dominio.trabajos import MENSAJE_TIMEOUT, EstadoTrabajo, Trabajo
 
 ESQUEMA_SQL = """
 CREATE TABLE IF NOT EXISTS nodos (
@@ -58,6 +58,9 @@ CREATE INDEX IF NOT EXISTS idx_trabajos_usuario ON trabajos (usuario_id);
 -- Columnas agregadas cuando se sumó el resultado de vuelta por WebSocket.
 ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS texto_resultado TEXT;
 ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS error TEXT;
+-- Columna agregada para el vigilante de timeout (ver marcar_vencidos):
+-- sin esto no hay forma de saber cuánto lleva un trabajo EN_CURSO.
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now();
 """
 
 
@@ -212,13 +215,14 @@ class RepositorioTrabajosPostgres:
             """
             INSERT INTO trabajos
                 (trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
-                 texto_resultado, error)
-            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+                 texto_resultado, error, actualizado_en)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, now())
             ON CONFLICT (trabajo_id) DO UPDATE SET
                 estado = EXCLUDED.estado,
                 cadena_nodo_ids = EXCLUDED.cadena_nodo_ids,
                 texto_resultado = EXCLUDED.texto_resultado,
-                error = EXCLUDED.error
+                error = EXCLUDED.error,
+                actualizado_en = now()
             """,
             trabajo.trabajo_id,
             trabajo.usuario_id,
@@ -250,6 +254,24 @@ class RepositorioTrabajosPostgres:
             texto_resultado=fila["texto_resultado"],
             error=fila["error"],
         )
+
+    async def marcar_vencidos(self, ahora_unix: float, timeout_s: float) -> list[str]:
+        filas = await self._pool.fetch(
+            """
+            UPDATE trabajos
+               SET estado = 'FALLIDO',
+                   error = $3,
+                   texto_resultado = NULL,
+                   actualizado_en = to_timestamp($1::double precision)
+             WHERE estado = 'EN_CURSO'
+               AND actualizado_en < to_timestamp($1::double precision - $2::double precision)
+            RETURNING trabajo_id
+            """,
+            ahora_unix,
+            timeout_s,
+            MENSAJE_TIMEOUT,
+        )
+        return [str(fila["trabajo_id"]) for fila in filas]
 
 
 class RepositorioCreditosPostgres:

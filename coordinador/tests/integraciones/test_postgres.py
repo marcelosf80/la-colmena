@@ -13,13 +13,14 @@ correr contra una base de desarrollo sin borrar datos existentes.
 from __future__ import annotations
 
 import os
+import time
 from uuid import uuid4
 
 import pytest
 
 from app.dominio.creditos import TipoAsiento
 from app.dominio.nodos import Candidato, EstadoNodo, Nodo
-from app.dominio.trabajos import EstadoTrabajo, Trabajo
+from app.dominio.trabajos import MENSAJE_TIMEOUT, EstadoTrabajo, Trabajo
 from app.infraestructura.repositorios.postgres import (
     RepositorioCandidatosPostgres,
     RepositorioCreditosPostgres,
@@ -148,6 +149,63 @@ async def test_vigilante_marca_caidos_sin_latido(pool, modelo_hash: str) -> None
     # vigilante también los marca. Solo verificamos el comportamiento propio.
     assert vencido in caidos
     assert vivo not in caidos
+
+
+async def test_vigilante_marca_trabajos_vencidos(pool, modelo_hash: str) -> None:
+    repo = RepositorioTrabajosPostgres(pool)
+    trabajo_id = str(uuid4())
+    await repo.guardar(
+        Trabajo(
+            trabajo_id=trabajo_id,
+            modelo_hash=modelo_hash,
+            usuario_id="usuario-vigilante-trabajos",
+            estado=EstadoTrabajo.EN_CURSO,
+        )
+    )
+    # A diferencia de `actualizar_latido`, `guardar` estampa el momento real
+    # (`now()`) — no hay un parámetro de momento_unix para los trabajos, así
+    # que el "ahora" del vigilante tiene que ser relativo al reloj real.
+    ahora = time.time()
+
+    vencidos = await repo.marcar_vencidos(ahora_unix=ahora + 100, timeout_s=30)
+
+    assert trabajo_id in vencidos
+    trabajo = await repo.obtener(trabajo_id)
+    assert trabajo is not None
+    assert trabajo.estado is EstadoTrabajo.FALLIDO
+    assert trabajo.error == MENSAJE_TIMEOUT
+
+
+async def test_vigilante_de_trabajos_no_toca_en_cola_ni_completados(pool, modelo_hash: str) -> None:
+    repo = RepositorioTrabajosPostgres(pool)
+    en_cola_id = str(uuid4())
+    completado_id = str(uuid4())
+    await repo.guardar(
+        Trabajo(
+            trabajo_id=en_cola_id,
+            modelo_hash=modelo_hash,
+            usuario_id="usuario-vigilante-trabajos",
+            estado=EstadoTrabajo.EN_COLA,
+        )
+    )
+    await repo.guardar(
+        Trabajo(
+            trabajo_id=completado_id,
+            modelo_hash=modelo_hash,
+            usuario_id="usuario-vigilante-trabajos",
+            estado=EstadoTrabajo.COMPLETADO,
+            texto_resultado="ya tenía respuesta",
+        )
+    )
+    ahora = time.time()
+
+    vencidos = await repo.marcar_vencidos(ahora_unix=ahora + 1_000, timeout_s=1)
+
+    assert en_cola_id not in vencidos
+    assert completado_id not in vencidos
+    completado = await repo.obtener(completado_id)
+    assert completado is not None
+    assert completado.texto_resultado == "ya tenía respuesta"
     estados = {
         c.nodo.nodo_id: c.nodo.estado
         for c in await repo.listar_por_modelo(modelo_hash)

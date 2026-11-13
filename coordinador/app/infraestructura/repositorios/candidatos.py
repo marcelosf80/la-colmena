@@ -12,7 +12,7 @@ from dataclasses import replace
 
 from app.dominio.creditos import TipoAsiento
 from app.dominio.nodos import Candidato, EstadoNodo, Nodo
-from app.dominio.trabajos import Trabajo
+from app.dominio.trabajos import EstadoTrabajo, Trabajo, marcar_vencido
 
 
 class RepositorioCandidatosEnMemoria:
@@ -67,12 +67,26 @@ class RepositorioCandidatosEnMemoria:
 class RepositorioTrabajosEnMemoria:
     def __init__(self) -> None:
         self._trabajos: dict[str, Trabajo] = {}
+        self._actualizado_unix: dict[str, float] = {}
 
     async def guardar(self, trabajo: Trabajo) -> None:
         self._trabajos[trabajo.trabajo_id] = trabajo
+        self._actualizado_unix[trabajo.trabajo_id] = time.time()
 
     async def obtener(self, trabajo_id: str) -> Trabajo | None:
         return self._trabajos.get(trabajo_id)
+
+    async def marcar_vencidos(self, ahora_unix: float, timeout_s: float) -> list[str]:
+        vencidos: list[str] = []
+        for trabajo_id, trabajo in list(self._trabajos.items()):
+            if trabajo.estado is not EstadoTrabajo.EN_CURSO:
+                continue
+            momento = self._actualizado_unix.get(trabajo_id, ahora_unix)
+            if ahora_unix - momento > timeout_s:
+                self._trabajos[trabajo_id] = marcar_vencido(trabajo)
+                self._actualizado_unix[trabajo_id] = ahora_unix
+                vencidos.append(trabajo_id)
+        return vencidos
 
 
 class RepositorioCreditosEnMemoria:

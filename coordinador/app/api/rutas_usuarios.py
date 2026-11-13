@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.api.dependencias import repo_candidatos, repo_trabajos
+from app.config import configuracion
 from app.dominio.planificador import PosicionSinCandidatosError, armar_cadena
 from app.dominio.trabajos import EstadoTrabajo, Trabajo
 from app.infraestructura.repositorios.base import (
@@ -14,8 +15,6 @@ from app.infraestructura.repositorios.base import (
 )
 
 router = APIRouter(prefix="/consultas", tags=["consultas"])
-
-TIMEOUT_TRABAJO_MS = 60_000
 
 
 class ConsultaRequest(BaseModel):
@@ -58,7 +57,7 @@ async def enviar_consulta(
         "siguiente_nodo_id": (
             trabajo.cadena_nodo_ids[1] if len(trabajo.cadena_nodo_ids) > 1 else None
         ),
-        "timeout_ms": TIMEOUT_TRABAJO_MS,
+        "timeout_ms": int(configuracion.trabajo_timeout_s * 1000),
     }
     despachado = await request.app.state.gestor_conexiones.enviar(primero, asignacion)
     if despachado:

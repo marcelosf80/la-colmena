@@ -41,3 +41,20 @@ def aplicar_resultado(trabajo: Trabajo, exito: bool, texto: str, error: str) -> 
     if exito:
         return replace(trabajo, estado=EstadoTrabajo.COMPLETADO, texto_resultado=texto, error=None)
     return replace(trabajo, estado=EstadoTrabajo.FALLIDO, texto_resultado=None, error=error)
+
+
+MENSAJE_TIMEOUT = "timeout: el nodo no devolvió resultado a tiempo"
+
+
+def marcar_vencido(trabajo: Trabajo) -> Trabajo:
+    """Si el trabajo quedó EN_CURSO más tiempo del permitido (el nodo se
+    cayó, o nunca mandó el `resultado`), lo marca FALLIDO.
+
+    Solo actúa sobre EN_CURSO a propósito: un trabajo EN_COLA (nunca se
+    pudo despachar porque el nodo no estaba conectado) es un problema
+    distinto — de cola/reintento, no de timeout — y uno ya en estado
+    terminal no se toca, igual que en `aplicar_resultado`.
+    """
+    if trabajo.estado is not EstadoTrabajo.EN_CURSO:
+        return trabajo
+    return replace(trabajo, estado=EstadoTrabajo.FALLIDO, texto_resultado=None, error=MENSAJE_TIMEOUT)

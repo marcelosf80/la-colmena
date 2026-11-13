@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from app.dominio.creditos import TipoAsiento
@@ -121,3 +123,46 @@ async def test_vigilante_marca_caidos_y_no_repite() -> None:
     assert caidos == ["n1"]
     # Una segunda pasada no vuelve a reportar al ya caído (n2 sigue al día).
     assert await repo.marcar_caidos_sin_latido(ahora_unix=1_110.0, timeout_s=30) == []
+
+
+@pytest.mark.asyncio
+async def test_vigilante_de_trabajos_marca_vencidos_los_en_curso_y_no_repite() -> None:
+    repo = RepositorioTrabajosEnMemoria()
+    await repo.guardar(
+        Trabajo(trabajo_id="t-1", modelo_hash="hash", usuario_id="u-1", estado=EstadoTrabajo.EN_CURSO)
+    )
+    # `guardar` estampa el momento real internamente (igual que un latido
+    # real), así que el "ahora" sintético tiene que ser posterior a eso.
+    ahora = time.time()
+
+    vencidos = await repo.marcar_vencidos(ahora_unix=ahora + 100, timeout_s=30)
+
+    assert vencidos == ["t-1"]
+    trabajo = await repo.obtener("t-1")
+    assert trabajo.estado is EstadoTrabajo.FALLIDO
+    # Segunda pasada: ya está en estado terminal, no se vuelve a reportar.
+    assert await repo.marcar_vencidos(ahora_unix=ahora + 200, timeout_s=30) == []
+
+
+@pytest.mark.asyncio
+async def test_vigilante_de_trabajos_ignora_en_cola_y_terminales() -> None:
+    repo = RepositorioTrabajosEnMemoria()
+    await repo.guardar(
+        Trabajo(trabajo_id="en-cola", modelo_hash="hash", usuario_id="u-1", estado=EstadoTrabajo.EN_COLA)
+    )
+    await repo.guardar(
+        Trabajo(
+            trabajo_id="completado",
+            modelo_hash="hash",
+            usuario_id="u-1",
+            estado=EstadoTrabajo.COMPLETADO,
+            texto_resultado="ya tenía respuesta",
+        )
+    )
+    ahora = time.time()
+
+    assert await repo.marcar_vencidos(ahora_unix=ahora + 1_000, timeout_s=1) == []
+    assert (await repo.obtener("en-cola")).estado is EstadoTrabajo.EN_COLA  # type: ignore[union-attr]
+    completado = await repo.obtener("completado")
+    assert completado.estado is EstadoTrabajo.COMPLETADO  # type: ignore[union-attr]
+    assert completado.texto_resultado == "ya tenía respuesta"  # type: ignore[union-attr]
