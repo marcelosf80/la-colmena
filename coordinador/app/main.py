@@ -66,6 +66,26 @@ async def _vigilar_trabajos_vencidos(app: FastAPI) -> None:
             registro.exception("fallo el vigilante de trabajos vencidos")
 
 
+async def _vigilar_cola(app: FastAPI) -> None:
+    """Reintenta despachar los trabajos EN_COLA.
+
+    Cubre dos casos: la consulta llegó antes de que el nodo elegido abriera
+    su canal WebSocket, o no había ningún candidato para alguna posición
+    todavía (puede aparecer uno más tarde). La lógica de replanificación y
+    despacho vive en `rutas_usuarios.reintentar_cola` — el vigilante solo
+    decide cada cuánto correrla y loguea el resultado.
+    """
+    intervalo = max(1.0, configuracion.reintento_cola_s)
+    while True:
+        await asyncio.sleep(intervalo)
+        try:
+            despachados = await rutas_usuarios.reintentar_cola(app)
+            for trabajo_id in despachados:
+                registro.info("trabajo %s en cola redespachado", trabajo_id)
+        except Exception:  # noqa: BLE001 - el vigilante no debe morir por un error de BD
+            registro.exception("fallo el vigilante de cola")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Arma repositorios y conexiones: Postgres si COMUNIDAD_IA_BD_URL está
@@ -87,10 +107,11 @@ async def lifespan(app: FastAPI):
     app.state.gestor_conexiones = websockets.GestorConexiones()
     vigilante_latidos = asyncio.create_task(_vigilar_latidos(app))
     vigilante_trabajos = asyncio.create_task(_vigilar_trabajos_vencidos(app))
+    vigilante_cola = asyncio.create_task(_vigilar_cola(app))
 
     yield
 
-    for vigilante in (vigilante_latidos, vigilante_trabajos):
+    for vigilante in (vigilante_latidos, vigilante_trabajos, vigilante_cola):
         vigilante.cancel()
         with suppress(asyncio.CancelledError):
             await vigilante

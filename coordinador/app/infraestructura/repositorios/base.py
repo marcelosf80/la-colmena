@@ -12,7 +12,7 @@ from typing import Protocol, runtime_checkable
 
 from app.dominio.creditos import TipoAsiento
 from app.dominio.nodos import Candidato, EstadoNodo
-from app.dominio.trabajos import Trabajo
+from app.dominio.trabajos import EstadoTrabajo, Trabajo
 
 
 @runtime_checkable
@@ -49,6 +49,11 @@ class RepositorioTrabajos(Protocol):
     async def marcar_vencidos(self, ahora_unix: float, timeout_s: float) -> list[str]:
         """Marca FALLIDO (timeout) los trabajos EN_CURSO desde hace más de
         timeout_s. Devuelve los trabajo_id afectados."""
+        ...
+
+    async def listar_por_estado(self, estado: EstadoTrabajo) -> list[Trabajo]:
+        """Usado por el vigilante de reintento de cola para encontrar los
+        EN_COLA sin tener que recorrer todos los trabajos."""
         ...
 
 

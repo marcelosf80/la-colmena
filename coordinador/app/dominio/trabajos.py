@@ -58,3 +58,25 @@ def marcar_vencido(trabajo: Trabajo) -> Trabajo:
     if trabajo.estado is not EstadoTrabajo.EN_CURSO:
         return trabajo
     return replace(trabajo, estado=EstadoTrabajo.FALLIDO, texto_resultado=None, error=MENSAJE_TIMEOUT)
+
+
+def construir_asignacion(trabajo: Trabajo, timeout_ms: int) -> dict:
+    """Arma el mensaje `asignacion` (formato documentado en
+    `api/websockets.py`) para el primer nodo de la cadena del trabajo.
+
+    Pura a propósito: no sabe nada de WebSocket ni de si el nodo está
+    conectado. La usan tanto el despacho inicial (`rutas_usuarios.py`)
+    como el reintento de cola, para que el formato del mensaje nunca
+    pueda divergir entre los dos caminos.
+    """
+    return {
+        "tipo": "asignacion",
+        "trabajo_id": trabajo.trabajo_id,
+        "modelo_hash": trabajo.modelo_hash,
+        "posicion": 0,
+        "cadena": trabajo.cadena_nodo_ids,
+        "siguiente_nodo_id": (
+            trabajo.cadena_nodo_ids[1] if len(trabajo.cadena_nodo_ids) > 1 else None
+        ),
+        "timeout_ms": timeout_ms,
+    }

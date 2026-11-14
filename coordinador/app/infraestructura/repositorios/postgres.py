@@ -189,6 +189,18 @@ class RepositorioCandidatosPostgres:
         return [fila["nodo_id"] for fila in filas]
 
 
+def _fila_a_trabajo(fila: asyncpg.Record) -> Trabajo:
+    return Trabajo(
+        trabajo_id=str(fila["trabajo_id"]),
+        usuario_id=fila["usuario_id"],
+        modelo_hash=fila["modelo_hash"],
+        cadena_nodo_ids=list(fila["cadena_nodo_ids"]),
+        estado=cast(EstadoTrabajo, EstadoTrabajo[fila["estado"]]),
+        texto_resultado=fila["texto_resultado"],
+        error=fila["error"],
+    )
+
+
 def _fila_a_candidato(fila: asyncpg.Record) -> Candidato:
     nodo = Nodo(
         nodo_id=fila["nodo_id"],
@@ -245,15 +257,19 @@ class RepositorioTrabajosPostgres:
         )
         if fila is None:
             return None
-        return Trabajo(
-            trabajo_id=str(fila["trabajo_id"]),
-            usuario_id=fila["usuario_id"],
-            modelo_hash=fila["modelo_hash"],
-            cadena_nodo_ids=list(fila["cadena_nodo_ids"]),
-            estado=cast(EstadoTrabajo, EstadoTrabajo[fila["estado"]]),
-            texto_resultado=fila["texto_resultado"],
-            error=fila["error"],
+        return _fila_a_trabajo(fila)
+
+    async def listar_por_estado(self, estado: EstadoTrabajo) -> list[Trabajo]:
+        filas = await self._pool.fetch(
+            """
+            SELECT trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
+                   texto_resultado, error
+              FROM trabajos
+             WHERE estado = $1
+            """,
+            estado.name,
         )
+        return [_fila_a_trabajo(fila) for fila in filas]
 
     async def marcar_vencidos(self, ahora_unix: float, timeout_s: float) -> list[str]:
         filas = await self._pool.fetch(

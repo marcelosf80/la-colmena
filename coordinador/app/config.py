@@ -18,6 +18,10 @@ class Configuracion(BaseSettings):
     # como `timeout_ms` en la asignación (rutas_usuarios.py) — una sola
     # fuente de verdad para que nunca queden desincronizados.
     trabajo_timeout_s: float = 60.0
+    # Cada cuántos segundos el vigilante de cola reintenta despachar los
+    # trabajos EN_COLA (llegaron antes de que el nodo elegido abriera su
+    # canal, o no había candidatos para alguna posición todavía).
+    reintento_cola_s: float = 10.0
 
     model_config = {"env_prefix": "COMUNIDAD_IA_"}
 

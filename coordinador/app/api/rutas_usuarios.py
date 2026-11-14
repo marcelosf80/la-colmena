@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.api.dependencias import repo_candidatos, repo_trabajos
 from app.config import configuracion
 from app.dominio.planificador import PosicionSinCandidatosError, armar_cadena
-from app.dominio.trabajos import EstadoTrabajo, Trabajo
+from app.dominio.trabajos import EstadoTrabajo, Trabajo, construir_asignacion
 from app.infraestructura.repositorios.base import (
     RepositorioCandidatos,
     RepositorioTrabajos,
@@ -46,19 +46,12 @@ async def enviar_consulta(
     )
 
     # Despacho al primer nodo de la cadena por WebSocket. Si no está
-    # conectado, el trabajo queda EN_COLA para un futuro reintento/cola.
+    # conectado, el trabajo queda EN_COLA — lo redespacha el vigilante de
+    # cola (ver `reintentar_cola` más abajo).
     primero = trabajo.cadena_nodo_ids[0]
-    asignacion = {
-        "tipo": "asignacion",
-        "trabajo_id": trabajo.trabajo_id,
-        "modelo_hash": trabajo.modelo_hash,
-        "posicion": 0,
-        "cadena": trabajo.cadena_nodo_ids,
-        "siguiente_nodo_id": (
-            trabajo.cadena_nodo_ids[1] if len(trabajo.cadena_nodo_ids) > 1 else None
-        ),
-        "timeout_ms": int(configuracion.trabajo_timeout_s * 1000),
-    }
+    asignacion = construir_asignacion(
+        trabajo, timeout_ms=int(configuracion.trabajo_timeout_s * 1000)
+    )
     despachado = await request.app.state.gestor_conexiones.enviar(primero, asignacion)
     if despachado:
         trabajo.estado = EstadoTrabajo.EN_CURSO
@@ -89,3 +82,41 @@ async def consultar_trabajo(
         "texto_resultado": trabajo.texto_resultado,
         "error": trabajo.error,
     }
+
+
+async def reintentar_cola(app) -> list[str]:
+    """Reintenta despachar los trabajos EN_COLA. Lo llama el vigilante de
+    `main.py` cada `reintento_cola_s`, y también los tests directamente
+    (sin esperar el intervalo real).
+
+    Para cada trabajo EN_COLA vuelve a correr el planificador con los
+    candidatos actuales — pueden ser distintos a los que había cuando se
+    creó el trabajo, por eso no alcanza con reintentar contra la cadena ya
+    guardada — y, si arma una cadena, intenta despachar al primer nodo. Si
+    ese nodo todavía no tiene canal abierto, el trabajo sigue EN_COLA y se
+    reintenta en la próxima pasada; eso no es un error, solo se loguea el
+    éxito. Devuelve los trabajo_id que se lograron despachar en esta pasada.
+    """
+    repositorio_trabajos: RepositorioTrabajos = app.state.repositorio_trabajos
+    repositorio_candidatos: RepositorioCandidatos = app.state.repositorio_candidatos
+    gestor = app.state.gestor_conexiones
+
+    despachados: list[str] = []
+    for trabajo in await repositorio_trabajos.listar_por_estado(EstadoTrabajo.EN_COLA):
+        total_posiciones = len(trabajo.cadena_nodo_ids) or 1
+        candidatos = await repositorio_candidatos.listar_por_modelo(trabajo.modelo_hash)
+        try:
+            cadena = armar_cadena(candidatos, trabajo.modelo_hash, total_posiciones)
+        except PosicionSinCandidatosError:
+            continue  # sigue sin candidatos para alguna posición: se reintenta después
+
+        trabajo.cadena_nodo_ids = cadena.nodo_ids_en_orden
+        asignacion = construir_asignacion(
+            trabajo, timeout_ms=int(configuracion.trabajo_timeout_s * 1000)
+        )
+        if await gestor.enviar(cadena.nodo_ids_en_orden[0], asignacion):
+            trabajo.estado = EstadoTrabajo.EN_CURSO
+            despachados.append(trabajo.trabajo_id)
+        await repositorio_trabajos.guardar(trabajo)
+
+    return despachados

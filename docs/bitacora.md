@@ -7,6 +7,58 @@ hoy*, qué se verificó realmente y qué le falta contar a quien se sume
 después. Se actualiza cada vez que el estado general cambia de forma
 relevante (no en cada commit).
 
+## 2026-11-12 (3) — Cola con reintento
+
+Cierra el otro pendiente que había quedado anotado: un trabajo que no se
+pudo despachar porque el nodo elegido no tenía el canal abierto todavía
+quedaba `en_cola` para siempre, sin que nada volviera a intentarlo. (Se
+decidió dejar el nodo Android fuera de alcance por ahora y seguir
+resolviendo estos pendientes del coordinador en su lugar.)
+
+**Qué cambió**
+
+- `dominio/trabajos.py::construir_asignacion` (pura): extraje el armado
+  del mensaje `asignacion` que antes estaba inline en
+  `rutas_usuarios.py::enviar_consulta`, para que el despacho inicial y el
+  reintento de cola nunca puedan divergir en el formato del mensaje.
+- `rutas_usuarios.py::reintentar_cola`: por cada trabajo `EN_COLA`, vuelve
+  a correr el planificador (`armar_cadena`) con los candidatos *actuales*
+  — no reintenta contra la cadena vieja. Esto importa: si el nodo
+  originalmente elegido se cayó pero apareció otro candidato distinto para
+  esa posición, el reintento lo encuentra. Hay un test específico para
+  este caso (`test_reintentar_cola_usa_un_candidato_nuevo_si_el_original_ya_no_esta`).
+- Nuevo vigilante `_vigilar_cola` en `main.py`, mismo patrón que los otros
+  dos, cada `reintento_cola_s` (10s por defecto).
+- `RepositorioTrabajos.listar_por_estado(estado)` nuevo en el protocolo +
+  memoria + Postgres (con un `_fila_a_trabajo` extraído para no duplicar
+  el mapeo fila→entidad entre `obtener` y `listar_por_estado`).
+
+**Verificación**
+
+- **57 tests** (50 + 7 nuevos: 2 de `construir_asignacion`, 1 de
+  `listar_por_estado` en memoria, 4 de `reintentar_cola`).
+- Los tests de `reintentar_cola` están **deliberadamente aislados de
+  FastAPI/TestClient** (`tests/unitarios/test_reintento_cola.py`, con un
+  `SimpleNamespace` haciendo de `app`). Armar un trabajo en cola y después
+  abrir un WebSocket real con `TestClient` para probar el reintento habría
+  significado correr `reintentar_cola` desde un loop de `asyncio.run()`
+  distinto al loop interno que usa `TestClient` para el WebSocket — frágil
+  y candidato a colgarse. Si alguien necesita este patrón de nuevo
+  (reintento + conexión real), que use esta forma aislada en vez de mezclar
+  `asyncio.run()` con `TestClient.websocket_connect`.
+- Probé la app completa con los tres vigilantes (heartbeats, timeout de
+  trabajos, reintento de cola) corriendo juntos: arranca y se apaga limpio.
+
+**Pendiente que queda (sin cambios respecto a la entrada anterior)**
+
+- El nodo no sabe que su trabajo venció del lado del coordinador.
+- Pipeline multi-nodo real (reenviar la activación entre nodos de la
+  cadena) — sigue siendo el pendiente más grande.
+- Verificación por réplicas — sigue siendo el gap de seguridad más
+  importante de la auditoría original, sin tocar.
+- Nodo Android: descartado del alcance por ahora, no es un pendiente
+  "para después" sino una decisión consciente de no seguir esa rama.
+
 ## 2026-11-12 (2) — Timeout de trabajos colgados
 
 Cerró el pendiente que había quedado anotado al final de la entrada

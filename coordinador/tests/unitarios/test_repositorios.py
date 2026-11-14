@@ -166,3 +166,21 @@ async def test_vigilante_de_trabajos_ignora_en_cola_y_terminales() -> None:
     completado = await repo.obtener("completado")
     assert completado.estado is EstadoTrabajo.COMPLETADO  # type: ignore[union-attr]
     assert completado.texto_resultado == "ya tenía respuesta"  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_listar_por_estado_filtra_correctamente() -> None:
+    repo = RepositorioTrabajosEnMemoria()
+    await repo.guardar(
+        Trabajo(trabajo_id="t-cola-1", modelo_hash="hash", usuario_id="u1", estado=EstadoTrabajo.EN_COLA)
+    )
+    await repo.guardar(
+        Trabajo(trabajo_id="t-cola-2", modelo_hash="hash", usuario_id="u1", estado=EstadoTrabajo.EN_COLA)
+    )
+    await repo.guardar(
+        Trabajo(trabajo_id="t-curso", modelo_hash="hash", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
+    )
+
+    en_cola = await repo.listar_por_estado(EstadoTrabajo.EN_COLA)
+
+    assert {t.trabajo_id for t in en_cola} == {"t-cola-1", "t-cola-2"}

@@ -88,6 +88,9 @@ class RepositorioTrabajosEnMemoria:
                 vencidos.append(trabajo_id)
         return vencidos
 
+    async def listar_por_estado(self, estado: EstadoTrabajo) -> list[Trabajo]:
+        return [t for t in self._trabajos.values() if t.estado is estado]
+
 
 class RepositorioCreditosEnMemoria:
     def __init__(self) -> None:

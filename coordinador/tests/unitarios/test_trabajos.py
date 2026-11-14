@@ -5,6 +5,7 @@ from app.dominio.trabajos import (
     EstadoTrabajo,
     Trabajo,
     aplicar_resultado,
+    construir_asignacion,
     marcar_vencido,
 )
 
@@ -96,3 +97,32 @@ def test_marcar_vencido_no_muta_el_trabajo_original() -> None:
 
     assert original.estado == EstadoTrabajo.EN_CURSO
     assert original.error is None
+
+
+def test_construir_asignacion_con_cadena_de_varios_nodos() -> None:
+    trabajo = Trabajo(
+        trabajo_id="t1",
+        modelo_hash="hash",
+        usuario_id="u1",
+        cadena_nodo_ids=["n0", "n1", "n2"],
+    )
+
+    asignacion = construir_asignacion(trabajo, timeout_ms=60_000)
+
+    assert asignacion == {
+        "tipo": "asignacion",
+        "trabajo_id": "t1",
+        "modelo_hash": "hash",
+        "posicion": 0,
+        "cadena": ["n0", "n1", "n2"],
+        "siguiente_nodo_id": "n1",
+        "timeout_ms": 60_000,
+    }
+
+
+def test_construir_asignacion_con_un_solo_nodo_no_tiene_siguiente() -> None:
+    trabajo = Trabajo(trabajo_id="t1", modelo_hash="hash", usuario_id="u1", cadena_nodo_ids=["n0"])
+
+    asignacion = construir_asignacion(trabajo, timeout_ms=1_000)
+
+    assert asignacion["siguiente_nodo_id"] is None
