@@ -11,6 +11,11 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.api.dependencias import repo_candidatos, repo_trabajos
+from app.infraestructura.repositorios.candidatos import (
+    RepositorioCandidatosEnMemoria,
+    RepositorioTrabajosEnMemoria,
+)
 from app.main import app
 
 
@@ -35,8 +40,16 @@ def _registrar(cliente: TestClient, nodo_id: str, modelo_hash: str) -> None:
 
 
 def test_metricas_sin_trabajos_devuelve_ceros_coherentes() -> None:
-    with TestClient(app) as cliente:
-        respuesta = cliente.get("/metricas")
+    # Se inyectan repositorios vacíos: en CI el backend es Postgres y la base
+    # persiste entre tests, así que no se puede asumir que el estado global
+    # esté limpio.
+    app.dependency_overrides[repo_trabajos] = RepositorioTrabajosEnMemoria
+    app.dependency_overrides[repo_candidatos] = RepositorioCandidatosEnMemoria
+    try:
+        with TestClient(app) as cliente:
+            respuesta = cliente.get("/metricas")
+    finally:
+        app.dependency_overrides.clear()
 
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
