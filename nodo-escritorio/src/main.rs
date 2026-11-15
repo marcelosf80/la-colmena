@@ -1,12 +1,15 @@
+mod benchmark;
 mod canal_trabajo;
 mod cliente_coordinador;
 mod control_usuario;
 mod ejecutor_modelo;
+mod hardware;
 mod motor_servidor;
 mod politicas_recursos;
 mod recibo_local;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -69,6 +72,16 @@ struct Argumentos {
     /// asignación (compatibilidad con contratos viejos o pruebas locales).
     #[arg(long, default_value = "En una frase, qué es el cómputo compartido para IA:")]
     prompt_demo: String,
+
+    /// Forzar si el nodo reporta GPU. Sin este flag se detecta con
+    /// `nvidia-smi` (AMD/Intel todavía no se detectan automáticamente).
+    #[arg(long)]
+    tiene_gpu: Option<bool>,
+
+    /// Tokens del benchmark de arranque para medir tokens/s reales.
+    /// 0 desactiva el benchmark (se reporta 0.0).
+    #[arg(long, default_value_t = 16)]
+    tokens_benchmark: u32,
 }
 
 #[tokio::main]
@@ -118,15 +131,30 @@ async fn main() -> anyhow::Result<()> {
     };
     let prompt_demo = args.prompt_demo.clone();
 
+    // Métricas reales de arranque: GPU detectada (o forzada) y tokens/s
+    // medidos con el motor ya cargado. Antes se reportaban valores fijos.
+    let tiene_gpu = args.tiene_gpu.unwrap_or_else(hardware::detectar_gpu);
+    let tokens_por_segundo = if args.tokens_benchmark > 0 {
+        let medido = benchmark::medir_tokens_por_segundo(motor.as_ref(), args.tokens_benchmark);
+        info!(
+            tokens_por_segundo = medido,
+            tokens_benchmark = args.tokens_benchmark,
+            "benchmark de arranque completado"
+        );
+        medido
+    } else {
+        0.0
+    };
+
     cliente
         .registrar(&RegistroNodo {
             nodo_id: args.nodo_id.clone(),
             ram_donada_mb: args.ram_max_mb,
             cores_donados: num_cpus_logicos(),
-            tiene_gpu: false,
+            tiene_gpu,
             modelo_hash: args.modelo_hash.clone(),
             posicion: args.posicion,
-            tokens_por_segundo: 0.0, // TODO: benchmark real al conectar
+            tokens_por_segundo,
         })
         .await?;
     info!(nodo_id = %args.nodo_id, "registrado en el coordinador");
@@ -141,6 +169,11 @@ async fn main() -> anyhow::Result<()> {
 
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::pin!(ctrl_c);
+
+    // Trabajos que este nodo está procesando ahora mismo. Se reporta en el
+    // heartbeat y es real porque la inferencia corre en tareas aparte (ver
+    // el brazo de asignación más abajo).
+    let en_curso = Arc::new(AtomicU32::new(0));
 
     let mut sistema = System::new_all();
     let mut intervalo = tokio::time::interval(Duration::from_secs(10));
@@ -166,14 +199,20 @@ async fn main() -> anyhow::Result<()> {
                 }
 
                 // Heartbeat real: estado y carga viajan al coordinador.
+                let consultas_en_curso = en_curso.load(Ordering::Relaxed);
                 match cliente
                     .enviar_heartbeat(
                         &args.nodo_id,
-                        &Latido { consultas_en_curso: 0, acepta_trabajo: true },
+                        &Latido { consultas_en_curso, acepta_trabajo: true },
                     )
                     .await
                 {
-                    Ok(()) => info!(uso_ram_mb, uso_cpu_pct, "heartbeat enviado al coordinador"),
+                    Ok(()) => info!(
+                        uso_ram_mb,
+                        uso_cpu_pct,
+                        consultas_en_curso,
+                        "heartbeat enviado al coordinador"
+                    ),
                     Err(error) => warn!(%error, "no se pudo enviar el heartbeat"),
                 }
             }
@@ -190,9 +229,6 @@ async fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                // El motor es un servidor HTTP: la llamada es bloqueante,
-                // así que corre en spawn_blocking para no frenar heartbeat
-                // ni control de usuario.
                 // Prompt real de la consulta; si el coordinador no lo manda
                 // (contrato viejo), cae al `--prompt-demo` para no romper.
                 let prompt = if asignacion.prompt.is_empty() {
@@ -200,67 +236,82 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     asignacion.prompt.clone()
                 };
-                let motor = motor.clone();
-                let motor_para_tokens = motor.clone();
-                let resultado = tokio::task::spawn_blocking(move || {
-                    motor.procesar(&prompt.into_bytes())
-                })
-                .await;
 
-                match resultado {
-                    Ok(Ok(activacion)) => {
-                        let tokens = motor_para_tokens.tokens_de_ultima_ejecucion();
-                        let texto = String::from_utf8_lossy(&activacion).into_owned();
-                        info!(
-                            trabajo_id = %asignacion.trabajo_id,
-                            tokens_generados = tokens,
-                            bytes_salida = activacion.len(),
-                            "asignación procesada por el motor"
-                        );
-                        let recibo = recibo_local::Recibo {
-                            trabajo_id: asignacion.trabajo_id.clone(),
-                            tokens_procesados: tokens,
-                        };
-                        if let Err(error) =
-                            recibo_local::registrar(Path::new(&args.archivo_recibos), &recibo)
-                        {
-                            warn!(%error, "no se pudo registrar el recibo local");
+                // La inferencia corre en una tarea aparte: así este loop
+                // sigue enviando heartbeats y atendiendo el control de
+                // usuario mientras el motor trabaja. Antes el `await`
+                // bloqueaba el select, y una inferencia más larga que el
+                // timeout de latido podía hacer que el coordinador marcara
+                // al nodo como CAIDO en pleno trabajo.
+                en_curso.fetch_add(1, Ordering::Relaxed);
+                let motor = motor.clone();
+                let emisor = emisor_resultados.clone();
+                let contador = en_curso.clone();
+                let archivo_recibos = args.archivo_recibos.clone();
+                tokio::spawn(async move {
+                    // El motor es un servidor HTTP: la llamada es bloqueante.
+                    let motor_para_tokens = motor.clone();
+                    let resultado = tokio::task::spawn_blocking(move || {
+                        motor.procesar(&prompt.into_bytes())
+                    })
+                    .await;
+
+                    let trabajo_id = asignacion.trabajo_id.clone();
+                    let rol = asignacion.rol.clone();
+                    match resultado {
+                        Ok(Ok(activacion)) => {
+                            let tokens = motor_para_tokens.tokens_de_ultima_ejecucion();
+                            let texto = String::from_utf8_lossy(&activacion).into_owned();
+                            info!(
+                                trabajo_id = %trabajo_id,
+                                tokens_generados = tokens,
+                                bytes_salida = activacion.len(),
+                                "asignación procesada por el motor"
+                            );
+                            let recibo = recibo_local::Recibo {
+                                trabajo_id: trabajo_id.clone(),
+                                tokens_procesados: tokens,
+                            };
+                            if let Err(error) =
+                                recibo_local::registrar(Path::new(&archivo_recibos), &recibo)
+                            {
+                                warn!(%error, "no se pudo registrar el recibo local");
+                            }
+                            // Cada nodo ejecuta el modelo completo: el
+                            // resultado que vuelve es final (no hay pipeline
+                            // de activaciones entre nodos).
+                            if emisor
+                                .send(MensajeResultado::exitoso(
+                                    trabajo_id.clone(),
+                                    texto,
+                                    rol,
+                                    tokens,
+                                ))
+                                .is_err()
+                            {
+                                warn!(trabajo_id = %trabajo_id, "no se pudo encolar el resultado: el canal de trabajo se cerró");
+                            }
                         }
-                        // TODO Fase 1: si `siguiente_nodo_id` no es None,
-                        // esto todavía no es el último eslabón de la cadena
-                        // (pipeline multi-nodo real) — hoy cada nodo procesa
-                        // el prompt de demostración de forma independiente,
-                        // así que se reporta como resultado final siempre.
-                        // Reenviar la activación al siguiente nodo queda
-                        // pendiente como feature aparte.
-                        if emisor_resultados
-                            .send(MensajeResultado::exitoso(
-                                asignacion.trabajo_id.clone(),
-                                texto,
-                                asignacion.rol.clone(),
-                            ))
-                            .is_err()
-                        {
-                            warn!(trabajo_id = %asignacion.trabajo_id, "no se pudo encolar el resultado: el canal de trabajo se cerró");
+                        Ok(Err(error)) => {
+                            warn!(trabajo_id = %trabajo_id, %error, "el motor no pudo procesar la asignación");
+                            let _ = emisor.send(MensajeResultado::fallido(
+                                trabajo_id.clone(),
+                                error.to_string(),
+                                rol,
+                            ));
+                        }
+                        Err(error) => {
+                            warn!(%error, "la tarea del motor falló al ejecutarse");
+                            let _ = emisor.send(MensajeResultado::fallido(
+                                trabajo_id.clone(),
+                                format!("la tarea del motor falló al ejecutarse: {error}"),
+                                rol,
+                            ));
                         }
                     }
-                    Ok(Err(error)) => {
-                        warn!(trabajo_id = %asignacion.trabajo_id, %error, "el motor no pudo procesar la asignación");
-                        let _ = emisor_resultados.send(MensajeResultado::fallido(
-                            asignacion.trabajo_id.clone(),
-                            error.to_string(),
-                            asignacion.rol.clone(),
-                        ));
-                    }
-                    Err(error) => {
-                        warn!(%error, "la tarea del motor falló al ejecutarse");
-                        let _ = emisor_resultados.send(MensajeResultado::fallido(
-                            asignacion.trabajo_id.clone(),
-                            format!("la tarea del motor falló al ejecutarse: {error}"),
-                            asignacion.rol.clone(),
-                        ));
-                    }
-                }
+
+                    contador.fetch_sub(1, Ordering::Relaxed);
+                });
             }
             _ = &mut ctrl_c => {
                 info!("señal de apagado recibida, deteniendo nodo");

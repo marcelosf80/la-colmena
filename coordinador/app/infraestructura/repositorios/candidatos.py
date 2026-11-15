@@ -91,6 +91,9 @@ class RepositorioTrabajosEnMemoria:
     async def listar_por_estado(self, estado: EstadoTrabajo) -> list[Trabajo]:
         return [t for t in self._trabajos.values() if t.estado is estado]
 
+    async def listar_todos(self) -> list[Trabajo]:
+        return list(self._trabajos.values())
+
 
 class RepositorioCreditosEnMemoria:
     def __init__(self) -> None:

@@ -29,6 +29,14 @@ pub trait MotorInferencia: Send + Sync {
         0
     }
 
+    /// Igual que `procesar`, pero limitando cuántos tokens puede generar.
+    /// El motor simulado lo ignora; el servidor real lo pasa como
+    /// `n_predict`. Se usa en el benchmark de arranque para no generar
+    /// cientos de tokens solo para medir velocidad.
+    fn procesar_con_limite(&self, entrada: &Activacion, _max_tokens: u32) -> Result<Activacion> {
+        self.procesar(entrada)
+    }
+
     fn capas_cargadas(&self) -> Option<(u32, u32)>;
 }
 

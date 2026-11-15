@@ -7,6 +7,54 @@ hoy*, qué se verificó realmente y qué le falta contar a quien se sume
 después. Se actualiza cada vez que el estado general cambia de forma
 relevante (no en cada commit).
 
+## 2026-11-15 (2) — Etapas 1 y 3 del informe: toolchain y observabilidad
+
+Se completó el resto de la **Etapa 1** (estabilidad) y se hizo una primera
+versión de la **Etapa 3** (observabilidad) sin depender de hardware externo.
+La prueba real multi-PC (Etapa 2) sigue bloqueada hasta tener 2–3 equipos.
+
+**Etapa 1 — toolchain y CI**
+
+- `Cargo.toml` ya no fija versiones puntuales de `tokio`, `clap` ni `rayon`;
+  se eliminó el pin directo de `rayon-core`. `Cargo.lock` se regeneró
+  (`tokio 1.54`, `clap 4.5`, `rayon 1.13`) y `cargo test --locked` pasa en
+  CI con Rust estable.
+- La nota de dependencias del README del nodo ahora describe el flujo real:
+  actualizar con `cargo update`, verificar y commitear el lock.
+
+**Etapa 3 — métricas medibles**
+
+- Coordinador: `Trabajo` guarda `despachado_en_unix`, `latencia_ms` y
+  `tokens_generados`; Postgres agrega las tres columnas de forma idempotente.
+  La latencia se mide desde el despacho real hasta el resultado terminal y no
+  se inventa cuando no hubo despacho.
+- `GET /metricas`: trabajos por estado, tasa de error, latencia p50/p95
+  (rango más cercano, sin interpolar), tokens generados y tasa agregada,
+  más detalle por nodo (estado, GPU, tokens/s, consultas en curso).
+  Cálculos puros en `app/dominio/metricas.py`.
+- Nodo: `tiene_gpu` se detecta con `nvidia-smi` (override
+  `--tiene-gpu true|false`); `tokens_por_segundo` se mide con un benchmark
+  corto al arrancar (`--tokens-benchmark`, 16 por defecto) usando
+  `procesar_con_limite`, que pasa `n_predict` al servidor real.
+- El resultado del nodo incluye `tokens` (opcional) para la métrica agregada.
+- **Bug de estabilidad corregido:** la inferencia se hacía con `await` dentro
+  del `select!` principal, así que durante un trabajo largo el nodo no latía
+  y el coordinador podía marcarlo CAIDO. Ahora corre en `tokio::spawn` y el
+  heartbeat informa la cantidad real de trabajos en curso.
+
+**Verificado**
+
+- Coordinador: **90 tests** (`pytest tests/unitarios`), incluidos percentiles,
+  anotación de latencia/tokens y `GET /metricas` con WebSocket real.
+- Nodo: **45 tests** (`cargo test --locked`), incluidos benchmark, detección
+  de GPU (parseo) y contrato del resultado con `tokens`.
+- Integración Postgres: round-trip de `prompt`, `despachado_en_unix`,
+  `latencia_ms` y `tokens_generados` (se ejecuta en CI; local se salta sin
+  `COMUNIDAD_IA_BD_URL`).
+
+**Sigue pendiente**: detección de AMD/Intel y VRAM, modo determinista para
+verificación, cancelación local en el nodo, y la prueba real con 2–3 PCs.
+
 ## 2026-11-15 — El nodo procesa el prompt real de la consulta
 
 Hasta esta fecha el nodo ejecutaba `--prompt-demo` (un texto fijo) para toda

@@ -94,10 +94,19 @@ pub struct MensajeResultado {
     pub error: String,
     #[serde(default = "rol_primaria")]
     pub rol: String,
+    /// Tokens generados por el motor en esta ejecución. El coordinador lo
+    /// usa para `GET /metricas` (tokens/s agregado). 0 si no se midió.
+    #[serde(default)]
+    pub tokens: u64,
 }
 
 impl MensajeResultado {
-    pub fn exitoso(trabajo_id: impl Into<String>, texto: impl Into<String>, rol: impl Into<String>) -> Self {
+    pub fn exitoso(
+        trabajo_id: impl Into<String>,
+        texto: impl Into<String>,
+        rol: impl Into<String>,
+        tokens: u64,
+    ) -> Self {
         Self {
             tipo: "resultado".to_string(),
             trabajo_id: trabajo_id.into(),
@@ -105,6 +114,7 @@ impl MensajeResultado {
             texto: texto.into(),
             error: String::new(),
             rol: rol.into(),
+            tokens,
         }
     }
 
@@ -116,6 +126,7 @@ impl MensajeResultado {
             texto: String::new(),
             error: error.into(),
             rol: rol.into(),
+            tokens: 0,
         }
     }
 }
@@ -268,7 +279,7 @@ mod tests {
     fn resultado_exitoso_serializa_con_los_campos_que_espera_el_coordinador() {
         // Contrato con `app/api/websockets.py::_procesar_resultado`: debe
         // traer tipo, trabajo_id, exito, texto y rol.
-        let mensaje = MensajeResultado::exitoso("t1", "hola mundo", "primaria");
+        let mensaje = MensajeResultado::exitoso("t1", "hola mundo", "primaria", 42);
         let json = serde_json::to_value(&mensaje).unwrap();
 
         assert_eq!(json["tipo"], "resultado");
@@ -277,6 +288,7 @@ mod tests {
         assert_eq!(json["texto"], "hola mundo");
         assert_eq!(json["error"], "");
         assert_eq!(json["rol"], "primaria");
+        assert_eq!(json["tokens"], 42);
     }
 
     #[test]
@@ -288,6 +300,7 @@ mod tests {
         assert_eq!(json["error"], "timeout del motor");
         assert_eq!(json["texto"], "");
         assert_eq!(json["rol"], "verificacion");
+        assert_eq!(json["tokens"], 0);
     }
 
     #[test]

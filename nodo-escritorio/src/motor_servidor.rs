@@ -93,10 +93,15 @@ impl MotorServidorLlama {
 
     /// POST /completion del API de llama-server (no streaming).
     pub fn consultar(&self, prompt: &str) -> Result<String> {
+        self.consultar_con_limite(prompt, TOKENS_PREDICHO_POR_DEFECTO)
+    }
+
+    /// Igual que `consultar`, con `n_predict` explícito (benchmark).
+    pub fn consultar_con_limite(&self, prompt: &str, n_predict: u32) -> Result<String> {
         let url = format!("{}/completion", self.url);
         let cuerpo = serde_json::json!({
             "prompt": prompt,
-            "n_predict": TOKENS_PREDICHO_POR_DEFECTO,
+            "n_predict": n_predict,
             "stream": false,
         });
 
@@ -185,6 +190,13 @@ impl MotorInferencia for MotorServidorLlama {
         let prompt = String::from_utf8(entrada.clone())
             .context("la entrada del motor no es UTF-8 válido")?;
         let texto = self.consultar(&prompt)?;
+        Ok(texto.into_bytes())
+    }
+
+    fn procesar_con_limite(&self, entrada: &Activacion, max_tokens: u32) -> Result<Activacion> {
+        let prompt = String::from_utf8(entrada.clone())
+            .context("la entrada del motor no es UTF-8 válido")?;
+        let texto = self.consultar_con_limite(&prompt, max_tokens)?;
         Ok(texto.into_bytes())
     }
 

@@ -9,11 +9,12 @@ el transporte deje de ser experimental):
 
 Coordinador → nodo:
     {"tipo": "asignacion", "trabajo_id": "...", "modelo_hash": "...",
-     "posicion": 0, "cadena": ["n0", "n1"], "siguiente_nodo_id": "n1",
-     "timeout_ms": 60000, "rol": "primaria"}
+     "prompt": "...", "posicion": 0, "cadena": ["n0", "n1"],
+     "siguiente_nodo_id": "n1", "timeout_ms": 60000, "rol": "primaria"}
 
-`rol` es "primaria" o "verificacion": cuando el coordinador activa
-verificación por réplicas para un trabajo (ver `rutas_usuarios.py` y
+`prompt` es el texto real de la consulta. `rol` es "primaria" o
+"verificacion": cuando el coordinador activa verificación por réplicas para
+un trabajo (ver `rutas_usuarios.py` y
 `dominio/trabajos.py::aplicar_resultado_replica`), despacha la MISMA
 consulta a dos cadenas de nodos independientes y compara. El nodo no hace
 nada distinto según el rol — solo tiene que devolverlo tal cual en su
@@ -24,7 +25,10 @@ Nodo → coordinador (opcional, heartbeat por el mismo canal):
 
 Nodo → coordinador (resultado de una asignación ya procesada):
     {"tipo": "resultado", "trabajo_id": "...", "exito": true,
-     "texto": "...", "error": "", "rol": "primaria"}
+     "texto": "...", "error": "", "rol": "primaria", "tokens": 42}
+
+`tokens` es opcional (default 0): cuántos tokens generó el motor, para
+`GET /metricas`.
 
 Si el nodo se desconecta, se marca CAIDO de inmediato: el planificador deja
 de asignarle trabajo hasta que vuelva a registrarse y latir.
@@ -39,7 +43,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.dominio.heartbeat import Latido, estado_efectivo
 from app.dominio.nodos import EstadoNodo
-from app.dominio.trabajos import ROL_PRIMARIA, aplicar_resultado_replica
+from app.dominio.trabajos import (
+    ESTADOS_TERMINALES,
+    ROL_PRIMARIA,
+    anotar_metricas,
+    aplicar_resultado_replica,
+)
 from app.infraestructura.repositorios.base import RepositorioCandidatos, RepositorioTrabajos
 
 registro = logging.getLogger("la_colmena")
@@ -126,6 +135,12 @@ async def _procesar_resultado(repositorio_trabajos: RepositorioTrabajos, mensaje
             texto=str(mensaje.get("texto", "")),
             error=str(mensaje.get("error", "")),
         )
+        if trabajo.estado in ESTADOS_TERMINALES and trabajo.latencia_ms is None:
+            trabajo = anotar_metricas(
+                trabajo,
+                ahora_unix=time.time(),
+                tokens=int(mensaje.get("tokens", 0) or 0),
+            )
         await repositorio_trabajos.guardar(trabajo)
     except Exception:  # noqa: BLE001 - el canal no debe morir por un error de BD
         registro.exception("no se pudo aplicar el resultado del trabajo %s", trabajo_id)

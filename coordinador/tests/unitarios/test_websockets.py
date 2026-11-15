@@ -118,6 +118,55 @@ async def test_procesar_resultado_exitoso_completa_el_trabajo() -> None:
 
 
 @pytest.mark.asyncio
+async def test_procesar_resultado_anota_latencia_y_tokens_si_hubo_despacho() -> None:
+    repositorio = RepositorioTrabajosEnMemoria()
+    despachado = time.time() - 1.5
+    await repositorio.guardar(
+        Trabajo(
+            trabajo_id="t1",
+            modelo_hash="hash-1",
+            usuario_id="u1",
+            estado=EstadoTrabajo.EN_CURSO,
+            despachado_en_unix=despachado,
+        )
+    )
+
+    await _procesar_resultado(
+        repositorio,
+        {
+            "tipo": "resultado",
+            "trabajo_id": "t1",
+            "exito": True,
+            "texto": "hola",
+            "tokens": 42,
+        },
+    )
+
+    trabajo = await repositorio.obtener("t1")
+    assert trabajo.latencia_ms is not None
+    assert trabajo.latencia_ms >= 1_400  # ~1.5 s
+    assert trabajo.tokens_generados == 42
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_sin_despacho_no_inventa_latencia() -> None:
+    # Trabajos viejos (o creados sin despacho) no tienen referencia temporal.
+    repositorio = RepositorioTrabajosEnMemoria()
+    await repositorio.guardar(
+        Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
+    )
+
+    await _procesar_resultado(
+        repositorio,
+        {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola", "tokens": 7},
+    )
+
+    trabajo = await repositorio.obtener("t1")
+    assert trabajo.latencia_ms is None
+    assert trabajo.tokens_generados is None
+
+
+@pytest.mark.asyncio
 async def test_procesar_resultado_fallido_marca_fallido_con_el_error() -> None:
     repositorio = RepositorioTrabajosEnMemoria()
     await repositorio.guardar(

@@ -7,9 +7,11 @@ from app.dominio.trabajos import (
     ROL_VERIFICACION,
     EstadoTrabajo,
     Trabajo,
+    anotar_metricas,
     aplicar_resultado,
     aplicar_resultado_replica,
     construir_asignacion,
+    marcar_despacho,
     marcar_vencido,
 )
 
@@ -110,6 +112,46 @@ def test_marcar_vencido_no_muta_el_trabajo_original() -> None:
 
     assert original.estado == EstadoTrabajo.EN_CURSO
     assert original.error is None
+
+
+def test_marcar_despacho_registra_el_primer_envio_y_no_lo_pisa() -> None:
+    trabajo = _trabajo()
+
+    despachado = marcar_despacho(trabajo, ahora_unix=1_000.0)
+    assert despachado.despachado_en_unix == 1_000.0
+    assert trabajo.despachado_en_unix is None  # no muta el original
+
+    # Un reintento posterior conserva el primer despacho (latencia real del
+    # usuario desde que pidió la consulta).
+    reintentado = marcar_despacho(despachado, ahora_unix=2_000.0)
+    assert reintentado.despachado_en_unix == 1_000.0
+
+
+def test_anotar_metricas_calcula_latencia_y_tokens() -> None:
+    trabajo = marcar_despacho(_trabajo(), ahora_unix=1_000.0)
+
+    anotado = anotar_metricas(trabajo, ahora_unix=1_002.5, tokens=12)
+
+    assert anotado.latencia_ms == 2_500
+    assert anotado.tokens_generados == 12
+
+
+def test_anotar_metricas_no_inventa_latencia_sin_despacho() -> None:
+    trabajo = _trabajo()
+
+    anotado = anotar_metricas(trabajo, ahora_unix=1_000.0, tokens=5)
+
+    assert anotado is trabajo
+    assert anotado.latencia_ms is None
+    assert anotado.tokens_generados is None
+
+
+def test_anotar_metricas_no_acepta_tokens_negativos() -> None:
+    trabajo = marcar_despacho(_trabajo(), ahora_unix=1_000.0)
+
+    anotado = anotar_metricas(trabajo, ahora_unix=1_001.0, tokens=-3)
+
+    assert anotado.tokens_generados == 0
 
 
 def test_construir_asignacion_con_cadena_de_varios_nodos() -> None:

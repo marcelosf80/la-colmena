@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
-from app.api import rutas_nodos, rutas_usuarios, websockets
+from app.api import rutas_metricas, rutas_nodos, rutas_usuarios, websockets
 from app.config import configuracion
 from app.infraestructura.repositorios.candidatos import (
     RepositorioCandidatosEnMemoria,
@@ -123,6 +123,7 @@ app = FastAPI(title=configuracion.nombre_app, lifespan=lifespan)
 
 app.include_router(rutas_nodos.router)
 app.include_router(rutas_usuarios.router)
+app.include_router(rutas_metricas.router)
 app.include_router(websockets.router)
 
 

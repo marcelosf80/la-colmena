@@ -18,7 +18,7 @@ como abejas aportando a una colmena.
 ## Badges
 
 ![Estado](https://img.shields.io/badge/estado-MVP%20multi--nodo-FFB300)
-![Tests](https://img.shields.io/badge/tests-75%20%2B%2039%20nodo%20%2B%20integracion-4CAF50)
+![Tests](https://img.shields.io/badge/tests-90%20%2B%2045%20nodo%20%2B%20integracion-4CAF50)
 ![Lenguajes](https://img.shields.io/badge/Python-FastAPI-3776AB?logo=python&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-daemon%20nodo-DEA584?logo=rust&logoColor=black)
 ![Protocolo](https://img.shields.io/badge/protocolo-Protobuf%20v1-A2AAFF)
@@ -51,8 +51,8 @@ Usuario ──► Coordinador ──► [Nodo A: modelo completo] ──► resp
 
 | Componente | Stack | Rol | Estado |
 |---|---|---|---|
-| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, planifica, lleva créditos, despacha por WS y gestiona el ciclo de vida de los trabajos | ✅ 75 tests |
-| [`nodo-escritorio/`](nodo-escritorio/) | Rust | Daemon del usuario: registro, heartbeat, políticas de recursos, inferencia real y resultados por WS | ✅ 39 tests |
+| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, planifica, lleva créditos, despacha por WS y gestiona el ciclo de vida de los trabajos | ✅ 90 tests |
+| [`nodo-escritorio/`](nodo-escritorio/) | Rust | Daemon del usuario: registro, heartbeat, políticas de recursos, inferencia real y resultados por WS | ✅ 45 tests |
 | [`packages/protocolo/`](packages/protocolo/) | Protobuf v1 | Contrato compartido por todas las implementaciones | 📝 esquema definido, aún no cableado |
 | [`infraestructura/`](infraestructura/) | docker-compose | Coordinador + Postgres 17 | ✅ Postgres conectado |
 | Nodo Android | Kotlin | Mismo rol del nodo de escritorio, con restricciones de batería/red | 🚫 fuera del MVP |
@@ -106,6 +106,17 @@ ciclo completo en el log del daemon. Ver
 > coordinador no lo manda (contrato viejo), el nodo usa `--prompt-demo` como
 > respaldo para no quedar sin nada que ejecutar.
 
+**Métricas del prototipo:**
+
+```bash
+curl http://localhost:8000/metricas
+```
+
+Devuelve trabajos por estado, tasa de error, latencia p50/p95, tokens
+generados y la tasa agregada, más el detalle de cada nodo (estado, GPU,
+tokens/s medidos y consultas en curso). Es la base reproducible que pide el
+informe; todavía no reemplaza Prometheus/Grafana.
+
 **Con Docker (coordinador + Postgres):**
 
 ```bash
@@ -116,8 +127,8 @@ docker compose up --build
 **Tests:**
 
 ```bash
-cd coordinador && pytest tests/unitarios -v   # 75 tests
-cd nodo-escritorio && cargo test              # 39 tests
+cd coordinador && pytest tests/unitarios -v   # 90 tests
+cd nodo-escritorio && cargo test              # 45 tests
 ```
 
 **Con Postgres local:**
@@ -139,10 +150,11 @@ uvicorn app.main:app --reload   # desde coordinador/
 - [x] Inferencia real con llama.cpp (binario oficial `llama-server`, sin FFI ni toolchain C++)
 - [x] Resultado del nodo de vuelta al coordinador por WebSocket
 - [x] Prompt real de la consulta transportado al nodo en la asignación
+- [x] Métricas reales: GPU detectada, benchmark de tokens/s al arrancar, latencia y tokens por trabajo (`GET /metricas`)
 - [x] Timeout de trabajos `EN_CURSO` + reintento de cola `EN_COLA`
 - [x] Verificación por réplicas (dos cadenas independientes; apagada por defecto)
 - [ ] Modo determinista (temperatura 0) o comparación tolerante para verificación
-- [ ] Métricas reales de hardware y rendimiento (hoy `tiene_gpu=false`, `tokens_por_segundo=0`)
+- [ ] Detección de GPU AMD/Intel (hoy solo NVIDIA vía `nvidia-smi`) y VRAM reportada
 - [ ] Reputación y créditos conectados a la verificación
 - [ ] Prueba real con 2–3 PCs y modelos completos
 

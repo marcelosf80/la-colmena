@@ -56,6 +56,11 @@ class RepositorioTrabajos(Protocol):
         EN_COLA sin tener que recorrer todos los trabajos."""
         ...
 
+    async def listar_todos(self) -> list[Trabajo]:
+        """Usado por `GET /metricas` para agregar el estado de todos los
+        trabajos. No participa del camino crítico de despacho."""
+        ...
+
 
 @runtime_checkable
 class RepositorioCreditos(Protocol):

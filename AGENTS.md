@@ -75,8 +75,14 @@ cargo test
   réplica) → `COMPLETADO`/`FALLIDO`. Estados terminales son inmutables ante
   resultados tardíos.
   - El resultado vuelve **por el mismo WebSocket**:
-    `{"tipo":"resultado","trabajo_id", "exito", "texto", "error", "rol"}`.
-    `rol` es `primaria` o `verificacion`; el nodo solo lo repite.
+    `{"tipo":"resultado","trabajo_id", "exito", "texto", "error", "rol", "tokens"}`.
+    `rol` es `primaria` o `verificacion`; el nodo solo lo repite. `tokens`
+    es opcional y alimenta `GET /metricas`.
+  - `GET /metricas` agrega trabajos por estado, tasa de error, latencia
+    p50/p95, tokens y detalle de nodos. Los cálculos puros viven en
+    `app/dominio/metricas.py`; el endpoint solo recolecta datos.
+  - La latencia se mide desde `despachado_en_unix` hasta el resultado
+    terminal (`latencia_ms`); si no hubo despacho, queda `NULL` a propósito.
   - `_vigilar_trabajos_vencidos` marca FALLIDO lo que supera
     `TRABAJO_TIMEOUT_S`; `_vigilar_cola` re-despacha `EN_COLA`
     replanificando con los candidatos actuales (`reintentar_cola`).
@@ -97,6 +103,11 @@ cargo test
 - El nodo usa `minreq` (HTTP bloqueante) dentro de `spawn_blocking`, y
   `tungstenite` en un hilo propio con un canal para devolver resultados. No
   migrar a un stack async sin motivo.
+- La inferencia corre en una tarea `tokio::spawn` aparte: el loop principal
+  sigue enviando heartbeats mientras el motor trabaja. No volver a `await`
+  la inferencia dentro del `select!` (un trabajo largo parecía nodo caído).
+- `tiene_gpu` se detecta con `nvidia-smi` (o `--tiene-gpu`); `tokens_por_segundo`
+  se mide con un benchmark corto al arrancar (`--tokens-benchmark`).
 - Inferencia real = binario oficial `llama-server` como proceso hijo
   (`src/motor_servidor.rs`) sobre HTTP local (puerto 8718 por defecto). Sin
   `--llama-server` + `--pesos` corre `MotorSimulado`; no hay FFI por diseño.

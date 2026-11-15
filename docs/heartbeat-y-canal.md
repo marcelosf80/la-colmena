@@ -76,13 +76,17 @@ Si falta (contrato viejo), el nodo cae a su `--prompt-demo`.
 `{"tipo": "latido", "consultas_en_curso": 2, "acepta_trabajo": true}`
 
 **Nodo → coordinador** (`resultado`, cierra una asignación procesada):
-`{"tipo": "resultado", "trabajo_id": "...", "exito": true, "texto": "...", "error": "", "rol": "primaria"}`
+`{"tipo": "resultado", "trabajo_id": "...", "exito": true, "texto": "...", "error": "", "rol": "primaria", "tokens": 42}`
+
+`tokens` es opcional (0 si falta): cuántos tokens generó el motor. El
+coordinador lo usa para las métricas agregadas.
 
 Sin verificación activa, el coordinador pasa el trabajo directo a
 `COMPLETADO` (guarda `texto_resultado`) o a `FALLIDO` (guarda `error`). Un
 `resultado` sobre un trabajo ya terminal se ignora (idempotente ante
 reenvíos tras una reconexión). El usuario lo lee con
-`GET /consultas/{trabajo_id}` (`texto_resultado` / `error`).
+`GET /consultas/{trabajo_id}` (`texto_resultado` / `error`, más
+`latencia_ms` y `tokens_generados` si hubo despacho).
 
 #### Verificación por réplicas
 
@@ -152,6 +156,25 @@ Si el nodo no tiene canal abierto queda `en_cola` (`despachado=false`).
 
 El vigilante de latidos corre cada `timeout/3`; el peor retraso de detección
 es ~1.33×timeout. El nodo de escritorio late cada 10 s.
+
+## Métricas (`GET /metricas`)
+
+Endpoint de solo lectura con lo medido por el prototipo:
+
+- `trabajos`: total, conteo por estado y `tasa_error` (fallidos sobre
+  resueltos).
+- `latencia_ms`: `p50`, `p95` y `muestra`, calculadas sobre trabajos
+  completados que tuvieron despacho.
+- `tokens`: total generado y `por_segundo` agregada (tokens sobre segundos
+  observados, solo trabajos con ambos datos).
+- `nodos`: total, conteo por estado, consultas en curso y
+  `tokens_por_segundo_promedio`, más `detalle` por nodo con GPU y tokens/s
+  reportados en el registro.
+
+Los percentiles son de rango más cercano (`app/dominio/metricas.py`), no
+interpolados: con muestras chicas devuelven un valor realmente observado.
+Todavía no hay Prometheus/Grafana ni series temporales; esto es la base
+medible del MVP.
 
 ## Pendiente conocido
 

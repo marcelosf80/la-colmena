@@ -41,15 +41,21 @@ Implementado y probado contra el coordinador FastAPI real:
 
 - Registro inicial (`ClienteCoordinador::registrar`).
 - **Heartbeat real cada 10 s** al coordinador (`POST /nodos/{id}/heartbeat`)
-  con medición de RAM/CPU (`sysinfo`); al pausar (usuario o política de
-  recursos) informa `acepta_trabajo: false` para que el coordinador deje de
-  asignarle trabajo.
+  con medición de RAM/CPU (`sysinfo`) y la cantidad real de trabajos en
+  curso; al pausar (usuario o política de recursos) informa
+  `acepta_trabajo: false` para que el coordinador deje de asignarle trabajo.
 - **Canal WebSocket bidireccional** (`canal_trabajo`): hilo bloqueante con
   `tungstenite`, reconexión automática cada 5 s; recibe asignaciones y devuelve
   `{"tipo":"resultado", ...}` por el mismo canal (incluye el `rol`
-  `primaria`/`verificacion` que envió el coordinador).
+  `primaria`/`verificacion` que envió el coordinador y los `tokens`
+  generados).
 - **Inferencia real opcional** con `llama-server` como proceso hijo
   (`MotorServidorLlama`); sin binario/pesos usa `MotorSimulado` (dev/CI).
+  La inferencia corre en una tarea aparte: el nodo sigue latiendo mientras
+  el motor trabaja (antes una inferencia larga podía parecer un nodo caído).
+- **Métricas de arranque**: detecta GPU NVIDIA con `nvidia-smi` (o
+  `--tiene-gpu true|false`) y mide tokens/s reales con un benchmark corto
+  (`--tokens-benchmark`, 16 por defecto) antes de registrarse.
 - Máquina de estados de control de usuario (activo / pausado / deteniendo).
 - `recibo_local`: registro append-only del trabajo realizado con los tokens
   reportados por el motor.
@@ -58,8 +64,8 @@ Implementado y probado contra el coordinador FastAPI real:
 
 1. ~~Prompt real por asignación~~: la asignación ya trae `prompt`; el nodo lo
    ejecuta y usa `--prompt-demo` solo como respaldo si falta.
-2. Benchmark real al conectar, en vez de reportar `tokens_por_segundo: 0.0`
-   (y `tiene_gpu: false` fijo).
+2. ~~Benchmark real al conectar~~: ya se mide tokens/s y se detecta GPU NVIDIA.
+   Falta detección de AMD/Intel (ROCm/Vulkan/Metal) y reportar VRAM.
 3. Cancelación/timeout local: si el coordinador marca el trabajo FALLIDO, el
    nodo puede seguir consumiendo recursos.
 4. Descarga automática del binario `llama-server` y los pesos `.gguf` desde el
@@ -100,6 +106,6 @@ cargo build --release
 cargo test
 ```
 
-39 tests cubriendo: políticas de recursos, máquina de estados de control de
+45 tests cubriendo: políticas de recursos, máquina de estados de control de
 usuario, contrato de serialización del canal (asignación/resultado), motor
 simulado, cliente HTTP del coordinador y registro local de recibos.

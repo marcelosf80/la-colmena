@@ -89,6 +89,8 @@ async def test_reintentar_cola_despacha_cuando_hay_canal_abierto() -> None:
     assert websocket.mensajes[0]["prompt"] == "prompt original de la consulta"
     actualizado = await app.state.repositorio_trabajos.obtener("t1")
     assert actualizado.estado is EstadoTrabajo.EN_CURSO
+    # El despacho debe dejar la marca temporal que luego usa /metricas.
+    assert actualizado.despachado_en_unix is not None
 
 
 @pytest.mark.asyncio

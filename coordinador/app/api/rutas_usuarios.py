@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import time
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,6 +16,7 @@ from app.dominio.trabajos import (
     EstadoTrabajo,
     Trabajo,
     construir_asignacion,
+    marcar_despacho,
 )
 from app.infraestructura.repositorios.base import (
     RepositorioCandidatos,
@@ -63,6 +65,7 @@ async def enviar_consulta(
     despachado = await gestor.enviar(primero, asignacion)
     if despachado:
         trabajo.estado = EstadoTrabajo.EN_CURSO
+        trabajo = marcar_despacho(trabajo, time.time())
 
         # Verificación por réplicas (opcional, ver dominio/trabajos.py):
         # solo se activa si se puede despachar AMBAS copias ahora mismo —
@@ -125,6 +128,8 @@ async def consultar_trabajo(
         "cadena_verificacion": trabajo.cadena_verificacion_nodo_ids,
         "resultado_primario": trabajo.resultado_primario,
         "resultado_secundario": trabajo.resultado_secundario,
+        "latencia_ms": trabajo.latencia_ms,
+        "tokens_generados": trabajo.tokens_generados,
     }
 
 
@@ -160,6 +165,7 @@ async def reintentar_cola(app) -> list[str]:
         )
         if await gestor.enviar(cadena.nodo_ids_en_orden[0], asignacion):
             trabajo.estado = EstadoTrabajo.EN_CURSO
+            trabajo = marcar_despacho(trabajo, time.time())
             despachados.append(trabajo.trabajo_id)
         await repositorio_trabajos.guardar(trabajo)
 

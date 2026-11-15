@@ -50,6 +50,11 @@ class Trabajo:
     # llegan las dos y se puede comparar. None = todavía no llegó.
     resultado_primario: tuple[bool, str] | None = None
     resultado_secundario: tuple[bool, str] | None = None
+    # Momento (unix) en que la primaria se despachó por el canal. Junto con
+    # `latencia_ms` y `tokens_generados` alimenta `GET /metricas`.
+    despachado_en_unix: float | None = None
+    latencia_ms: int | None = None
+    tokens_generados: int | None = None
 
 
 def aplicar_resultado(trabajo: Trabajo, exito: bool, texto: str, error: str) -> Trabajo:
@@ -112,6 +117,32 @@ def aplicar_resultado_replica(trabajo: Trabajo, rol: str, exito: bool, texto: st
 
 
 MENSAJE_TIMEOUT = "timeout: el nodo no devolvió resultado a tiempo"
+
+
+def marcar_despacho(trabajo: Trabajo, ahora_unix: float) -> Trabajo:
+    """Registra cuándo se envió la asignación por el canal.
+
+    Es la referencia para medir la latencia de punta a punta cuando vuelve
+    el resultado. Si el trabajo ya tenía un despacho previo (reintento tras
+    una desconexión) se conserva el primero: la latencia que le importa al
+    usuario es desde que pidió la consulta por primera vez.
+    """
+    if trabajo.despachado_en_unix is not None:
+        return trabajo
+    return replace(trabajo, despachado_en_unix=ahora_unix)
+
+
+def anotar_metricas(trabajo: Trabajo, ahora_unix: float, tokens: int = 0) -> Trabajo:
+    """Anota latencia y tokens del resultado ya asentado.
+
+    No toca el estado: se llama después de aplicar el resultado, y solo
+    tiene sentido si hubo un despacho previo. `tokens` es lo que reportó el
+    nodo (0 si no implementa conteo).
+    """
+    if trabajo.despachado_en_unix is None:
+        return trabajo
+    latencia_ms = max(0, int((ahora_unix - trabajo.despachado_en_unix) * 1000))
+    return replace(trabajo, latencia_ms=latencia_ms, tokens_generados=max(0, tokens))
 
 
 def marcar_vencido(trabajo: Trabajo) -> Trabajo:
