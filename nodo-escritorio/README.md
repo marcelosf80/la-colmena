@@ -67,14 +67,18 @@ Implementado y probado contra el coordinador FastAPI real:
 
 ## Nota sobre versiones de dependencias
 
-`Cargo.toml` mantiene pines puntuales por compatibilidad con un entorno
-histórico que traía `rustc 1.75` (las releases nuevas de `tokio`, `rayon` y
-`clap` requieren Rust 2024). El CI usa Rust estable y compila con
-`cargo test --locked`. Si tu entorno usa estable actual, podés proponer un PR
-para quitar los pines.
+`Cargo.toml` usa rangos normales de versión (sin pines puntuales) y el
+`Cargo.lock` versionado fija las versiones exactas. El CI compila con Rust
+estable y `cargo test --locked`, así que una actualización de dependencias
+entra por un PR que regenere el lock y pase los tests. Para actualizar:
 
-También se usa `minreq` en vez de `reqwest` para HTTP: es bloqueante, con muy
-pocas dependencias y un binario final más liviano. Las llamadas se delegan a
+```bash
+cargo update
+cargo test --locked
+```
+
+Se usa `minreq` en vez de `reqwest` para HTTP: es bloqueante, con muy pocas
+dependencias y un binario final más liviano. Las llamadas se delegan a
 `spawn_blocking` para no frenar el runtime async.
 
 ## Compilar y correr

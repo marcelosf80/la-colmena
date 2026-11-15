@@ -34,10 +34,9 @@ cargo test                       # los 39 tests deben pasar
 cargo build --release
 ```
 
-> `Cargo.toml` tiene dependencias pineadas a versiones puntuales porque el
-> entorno original trae `rustc 1.75`. Si tenés Rust estable actual, podés
-> abrir un PR para quitar los pines — está documentado en el README del
-> nodo.
+> `Cargo.toml` usa rangos de versión y `Cargo.lock` está versionado: el CI
+> corre `cargo test --locked` con Rust estable. Si actualizás dependencias,
+> regenerá el lock con `cargo update` y verificá que los tests pasen.
 
 ### Docker
 
