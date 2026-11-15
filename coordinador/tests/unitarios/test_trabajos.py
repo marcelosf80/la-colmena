@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from app.dominio.trabajos import (
+    MENSAJE_DISCREPANCIA,
     MENSAJE_TIMEOUT,
+    ROL_PRIMARIA,
+    ROL_VERIFICACION,
     EstadoTrabajo,
     Trabajo,
     aplicar_resultado,
+    aplicar_resultado_replica,
     construir_asignacion,
     marcar_vencido,
 )
@@ -81,6 +85,15 @@ def test_marcar_vencido_no_toca_un_trabajo_en_cola() -> None:
     assert resultado.estado == EstadoTrabajo.EN_COLA
 
 
+def test_marcar_vencido_tambien_vence_verificando() -> None:
+    # VERIFICANDO significa "ya llegó una de las dos copias, esperando la
+    # otra" — también puede quedarse esperando para siempre.
+    trabajo = marcar_vencido(_trabajo(EstadoTrabajo.VERIFICANDO))
+
+    assert trabajo.estado == EstadoTrabajo.FALLIDO
+    assert trabajo.error == MENSAJE_TIMEOUT
+
+
 def test_marcar_vencido_no_pisa_un_trabajo_ya_completado() -> None:
     trabajo = _trabajo(EstadoTrabajo.COMPLETADO)
     trabajo.texto_resultado = "ya tenía resultado"
@@ -117,6 +130,7 @@ def test_construir_asignacion_con_cadena_de_varios_nodos() -> None:
         "cadena": ["n0", "n1", "n2"],
         "siguiente_nodo_id": "n1",
         "timeout_ms": 60_000,
+        "rol": ROL_PRIMARIA,
     }
 
 
@@ -126,3 +140,130 @@ def test_construir_asignacion_con_un_solo_nodo_no_tiene_siguiente() -> None:
     asignacion = construir_asignacion(trabajo, timeout_ms=1_000)
 
     assert asignacion["siguiente_nodo_id"] is None
+
+
+def test_construir_asignacion_para_la_cadena_de_verificacion() -> None:
+    # El trabajo guarda su cadena PRIMARIA en cadena_nodo_ids; para armar
+    # el mensaje de la copia de verificación hay que pasar esa otra cadena
+    # explícitamente (no vive en el trabajo bajo el mismo campo).
+    trabajo = Trabajo(
+        trabajo_id="t1",
+        modelo_hash="hash",
+        usuario_id="u1",
+        cadena_nodo_ids=["n0"],
+        cadena_verificacion_nodo_ids=["n1"],
+    )
+
+    asignacion = construir_asignacion(
+        trabajo, timeout_ms=1_000, rol=ROL_VERIFICACION, cadena=trabajo.cadena_verificacion_nodo_ids
+    )
+
+    assert asignacion["cadena"] == ["n1"]
+    assert asignacion["rol"] == ROL_VERIFICACION
+
+
+def test_aplicar_resultado_replica_sin_verificacion_activa_se_comporta_como_aplicar_resultado() -> None:
+    trabajo = _trabajo(EstadoTrabajo.EN_CURSO)  # cadena_verificacion_nodo_ids vacía
+
+    resultado = aplicar_resultado_replica(trabajo, rol=ROL_PRIMARIA, exito=True, texto="hola", error="")
+
+    assert resultado.estado == EstadoTrabajo.COMPLETADO
+    assert resultado.texto_resultado == "hola"
+
+
+def _trabajo_con_verificacion(estado: EstadoTrabajo = EstadoTrabajo.EN_CURSO) -> Trabajo:
+    return Trabajo(
+        trabajo_id="t1",
+        modelo_hash="hash",
+        usuario_id="u1",
+        cadena_nodo_ids=["n0"],
+        cadena_verificacion_nodo_ids=["n1"],
+        estado=estado,
+    )
+
+
+def test_aplicar_resultado_replica_primera_copia_deja_verificando() -> None:
+    trabajo = aplicar_resultado_replica(
+        _trabajo_con_verificacion(), rol=ROL_PRIMARIA, exito=True, texto="hola", error=""
+    )
+
+    assert trabajo.estado == EstadoTrabajo.VERIFICANDO
+    assert trabajo.resultado_primario == (True, "hola")
+    assert trabajo.resultado_secundario is None
+    # Todavía no hay veredicto: no se completa con una sola copia.
+    assert trabajo.texto_resultado is None
+
+
+def test_aplicar_resultado_replica_coinciden_completa_con_el_texto() -> None:
+    trabajo = _trabajo_con_verificacion(EstadoTrabajo.VERIFICANDO)
+    trabajo.resultado_primario = (True, "misma respuesta")
+
+    resultado = aplicar_resultado_replica(
+        trabajo, rol=ROL_VERIFICACION, exito=True, texto="misma respuesta", error=""
+    )
+
+    assert resultado.estado == EstadoTrabajo.COMPLETADO
+    assert resultado.texto_resultado == "misma respuesta"
+    assert resultado.error is None
+
+
+def test_aplicar_resultado_replica_textos_distintos_marca_discrepancia() -> None:
+    trabajo = _trabajo_con_verificacion(EstadoTrabajo.VERIFICANDO)
+    trabajo.resultado_primario = (True, "respuesta A")
+
+    resultado = aplicar_resultado_replica(
+        trabajo, rol=ROL_VERIFICACION, exito=True, texto="respuesta B", error=""
+    )
+
+    assert resultado.estado == EstadoTrabajo.FALLIDO
+    assert resultado.error == MENSAJE_DISCREPANCIA
+    assert resultado.texto_resultado is None
+
+
+def test_aplicar_resultado_replica_una_falla_y_otra_no_marca_discrepancia() -> None:
+    # Una respuesta y un error nunca "coinciden", aunque tomen caminos
+    # distintos: no hay forma honesta de aceptar ninguna de las dos.
+    trabajo = _trabajo_con_verificacion(EstadoTrabajo.VERIFICANDO)
+    trabajo.resultado_primario = (True, "respuesta válida")
+
+    resultado = aplicar_resultado_replica(
+        trabajo, rol=ROL_VERIFICACION, exito=False, texto="", error="timeout del motor"
+    )
+
+    assert resultado.estado == EstadoTrabajo.FALLIDO
+    assert resultado.error == MENSAJE_DISCREPANCIA
+
+
+def test_aplicar_resultado_replica_las_dos_fallan_tambien_es_discrepancia() -> None:
+    # Ninguna de las dos generó un texto verificable, así que no hay nada
+    # que "coincida" para aceptar — se prefiere reportarlo como
+    # discrepancia explícita en vez de inventar un resultado.
+    trabajo = _trabajo_con_verificacion(EstadoTrabajo.VERIFICANDO)
+    trabajo.resultado_primario = (False, "error A")
+
+    resultado = aplicar_resultado_replica(
+        trabajo, rol=ROL_VERIFICACION, exito=False, texto="", error="error B"
+    )
+
+    assert resultado.estado == EstadoTrabajo.FALLIDO
+    assert resultado.error == MENSAJE_DISCREPANCIA
+
+
+def test_aplicar_resultado_replica_no_pisa_un_trabajo_ya_resuelto() -> None:
+    trabajo = _trabajo_con_verificacion(EstadoTrabajo.COMPLETADO)
+    trabajo.texto_resultado = "ya resuelto"
+
+    resultado = aplicar_resultado_replica(
+        trabajo, rol=ROL_PRIMARIA, exito=True, texto="otro texto", error=""
+    )
+
+    assert resultado is trabajo
+    assert resultado.texto_resultado == "ya resuelto"
+
+
+def test_aplicar_resultado_replica_no_muta_el_trabajo_original() -> None:
+    original = _trabajo_con_verificacion()
+    aplicar_resultado_replica(original, rol=ROL_PRIMARIA, exito=True, texto="hola", error="")
+
+    assert original.estado == EstadoTrabajo.EN_CURSO
+    assert original.resultado_primario is None

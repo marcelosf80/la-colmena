@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.config import configuracion
 from app.main import app
 
 
@@ -170,3 +171,70 @@ def test_consulta_sin_nodo_conectado_queda_en_cola() -> None:
         assert respuesta.status_code == 202
         assert respuesta.json()["despachado"] is False
         assert respuesta.json()["estado"] == "en_cola"
+
+
+def test_verificacion_por_replicas_despacha_a_dos_nodos_independientes() -> None:
+    modelo = _modelo_unico()
+    nodo_a = f"nodo-verif-a-{uuid4()}"
+    nodo_b = f"nodo-verif-b-{uuid4()}"
+    configuracion.tasa_verificacion = 1.0  # activa para esta consulta sí o sí
+    try:
+        with TestClient(app) as cliente:
+            _registrar(cliente, nodo_a, posicion=0, modelo_hash=modelo)
+            _registrar(cliente, nodo_b, posicion=0, modelo_hash=modelo)
+
+            with cliente.websocket_connect(f"/ws/nodos/{nodo_a}") as ws_a, cliente.websocket_connect(
+                f"/ws/nodos/{nodo_b}"
+            ) as ws_b:
+                respuesta = cliente.post(
+                    "/consultas",
+                    json={
+                        "usuario_id": "usuario-1",
+                        "modelo_hash": modelo,
+                        "total_posiciones": 1,
+                        "prompt": "verificar con dos nodos",
+                    },
+                )
+                cuerpo = respuesta.json()
+                assert cuerpo["despachado"] is True
+                assert cuerpo["verificacion_activa"] is True
+
+                asignacion_a = ws_a.receive_json()
+                asignacion_b = ws_b.receive_json()
+
+                # Cada nodo recibió su propia copia con el rol correcto, y
+                # ningún nodo aparece en la cadena del otro.
+                roles = {asignacion_a["rol"], asignacion_b["rol"]}
+                assert roles == {"primaria", "verificacion"}
+                assert asignacion_a["trabajo_id"] == asignacion_b["trabajo_id"] == cuerpo["trabajo_id"]
+    finally:
+        configuracion.tasa_verificacion = 0.0
+
+
+def test_verificacion_sin_segundo_nodo_no_bloquea_la_consulta() -> None:
+    # tasa_verificacion=1.0 pero solo hay un nodo: debe despachar la copia
+    # primaria igual, sin verificación (no hay con quién comparar).
+    modelo = _modelo_unico()
+    nodo_a = f"nodo-verif-solo-{uuid4()}"
+    configuracion.tasa_verificacion = 1.0
+    try:
+        with TestClient(app) as cliente:
+            _registrar(cliente, nodo_a, posicion=0, modelo_hash=modelo)
+            with cliente.websocket_connect(f"/ws/nodos/{nodo_a}") as ws:
+                respuesta = cliente.post(
+                    "/consultas",
+                    json={
+                        "usuario_id": "usuario-1",
+                        "modelo_hash": modelo,
+                        "total_posiciones": 1,
+                        "prompt": "un solo nodo disponible",
+                    },
+                )
+                cuerpo = respuesta.json()
+                assert cuerpo["despachado"] is True
+                assert cuerpo["verificacion_activa"] is False
+
+                asignacion = ws.receive_json()
+                assert asignacion["rol"] == "primaria"
+    finally:
+        configuracion.tasa_verificacion = 0.0

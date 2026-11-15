@@ -42,11 +42,21 @@ def _agrupar_por_posicion(
 
 
 def armar_cadena(
-    candidatos: list[Candidato], modelo_hash: str, total_posiciones: int
+    candidatos: list[Candidato],
+    modelo_hash: str,
+    total_posiciones: int,
+    *,
+    excluir_nodo_ids: frozenset[str] = frozenset(),
 ) -> Cadena:
     """Elige, para cada posición 0..total_posiciones-1, el candidato menos
     cargado (menor `consultas_en_curso`). Lanza `PosicionSinCandidatosError`
     si alguna posición no tiene ningún nodo disponible.
+
+    `excluir_nodo_ids` descarta nodos puntuales antes de elegir — lo usa la
+    verificación por réplicas para armar una segunda cadena que no comparta
+    ningún nodo con la primera (si el mismo nodo sirviera las dos copias,
+    "verificar" no demostraría nada: un nodo deshonesto se verificaría a
+    sí mismo).
 
     Complejidad: O(n log n) por el ordenamiento de candidatos por posición,
     donde n es la cantidad de candidatos para el modelo.
@@ -55,7 +65,9 @@ def armar_cadena(
 
     nodo_ids_en_orden: list[str] = []
     for posicion in range(total_posiciones):
-        disponibles = por_posicion.get(posicion, [])
+        disponibles = [
+            c for c in por_posicion.get(posicion, []) if c.nodo.nodo_id not in excluir_nodo_ids
+        ]
         if not disponibles:
             raise PosicionSinCandidatosError(modelo_hash, posicion)
         elegido = min(disponibles, key=lambda c: c.consultas_en_curso)

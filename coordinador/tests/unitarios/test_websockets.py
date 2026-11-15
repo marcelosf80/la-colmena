@@ -6,7 +6,7 @@ import pytest
 
 from app.api.websockets import GestorConexiones, _procesar_resultado, despedir_nodo
 from app.dominio.nodos import Candidato, EstadoNodo, Nodo
-from app.dominio.trabajos import EstadoTrabajo, Trabajo
+from app.dominio.trabajos import ROL_VERIFICACION, EstadoTrabajo, Trabajo
 from app.infraestructura.repositorios.candidatos import (
     RepositorioCandidatosEnMemoria,
     RepositorioTrabajosEnMemoria,
@@ -149,3 +149,80 @@ async def test_procesar_resultado_de_trabajo_desconocido_no_rompe_el_canal() -> 
         {"tipo": "resultado", "trabajo_id": "no-existe", "exito": True, "texto": "x"},
     )
     assert await repositorio.obtener("no-existe") is None
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_sin_rol_se_trata_como_primaria() -> None:
+    # Compatibilidad: un nodo viejo que no mande "rol" no debe romper nada,
+    # y el trabajo se resuelve igual que antes de que existiera el campo.
+    repositorio = RepositorioTrabajosEnMemoria()
+    await repositorio.guardar(
+        Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
+    )
+
+    await _procesar_resultado(repositorio, {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola"})
+
+    trabajo = await repositorio.obtener("t1")
+    assert trabajo.estado is EstadoTrabajo.COMPLETADO
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_con_verificacion_espera_las_dos_copias() -> None:
+    repositorio = RepositorioTrabajosEnMemoria()
+    await repositorio.guardar(
+        Trabajo(
+            trabajo_id="t1",
+            modelo_hash="hash-1",
+            usuario_id="u1",
+            cadena_nodo_ids=["n0"],
+            cadena_verificacion_nodo_ids=["n1"],
+            estado=EstadoTrabajo.EN_CURSO,
+        )
+    )
+
+    await _procesar_resultado(
+        repositorio, {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola"}
+    )
+    trabajo = await repositorio.obtener("t1")
+    assert trabajo.estado is EstadoTrabajo.VERIFICANDO
+
+    await _procesar_resultado(
+        repositorio,
+        {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola", "rol": ROL_VERIFICACION},
+    )
+    trabajo = await repositorio.obtener("t1")
+    assert trabajo.estado is EstadoTrabajo.COMPLETADO
+    assert trabajo.texto_resultado == "hola"
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_con_verificacion_discrepancia_marca_fallido() -> None:
+    repositorio = RepositorioTrabajosEnMemoria()
+    await repositorio.guardar(
+        Trabajo(
+            trabajo_id="t1",
+            modelo_hash="hash-1",
+            usuario_id="u1",
+            cadena_nodo_ids=["n0"],
+            cadena_verificacion_nodo_ids=["n1"],
+            estado=EstadoTrabajo.EN_CURSO,
+        )
+    )
+
+    await _procesar_resultado(
+        repositorio, {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "respuesta A"}
+    )
+    await _procesar_resultado(
+        repositorio,
+        {
+            "tipo": "resultado",
+            "trabajo_id": "t1",
+            "exito": True,
+            "texto": "respuesta B",
+            "rol": ROL_VERIFICACION,
+        },
+    )
+
+    trabajo = await repositorio.obtener("t1")
+    assert trabajo.estado is EstadoTrabajo.FALLIDO
+    assert "no coinciden" in trabajo.error

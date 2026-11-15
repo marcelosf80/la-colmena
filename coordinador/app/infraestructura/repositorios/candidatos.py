@@ -12,7 +12,7 @@ from dataclasses import replace
 
 from app.dominio.creditos import TipoAsiento
 from app.dominio.nodos import Candidato, EstadoNodo, Nodo
-from app.dominio.trabajos import EstadoTrabajo, Trabajo, marcar_vencido
+from app.dominio.trabajos import ESTADOS_ESPERANDO_NODO, EstadoTrabajo, Trabajo, marcar_vencido
 
 
 class RepositorioCandidatosEnMemoria:
@@ -79,7 +79,7 @@ class RepositorioTrabajosEnMemoria:
     async def marcar_vencidos(self, ahora_unix: float, timeout_s: float) -> list[str]:
         vencidos: list[str] = []
         for trabajo_id, trabajo in list(self._trabajos.items()):
-            if trabajo.estado is not EstadoTrabajo.EN_CURSO:
+            if trabajo.estado not in ESTADOS_ESPERANDO_NODO:
                 continue
             momento = self._actualizado_unix.get(trabajo_id, ahora_unix)
             if ahora_unix - momento > timeout_s:

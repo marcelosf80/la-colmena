@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -8,7 +9,13 @@ from pydantic import BaseModel
 from app.api.dependencias import repo_candidatos, repo_trabajos
 from app.config import configuracion
 from app.dominio.planificador import PosicionSinCandidatosError, armar_cadena
-from app.dominio.trabajos import EstadoTrabajo, Trabajo, construir_asignacion
+from app.dominio.trabajos import (
+    ROL_PRIMARIA,
+    ROL_VERIFICACION,
+    EstadoTrabajo,
+    Trabajo,
+    construir_asignacion,
+)
 from app.infraestructura.repositorios.base import (
     RepositorioCandidatos,
     RepositorioTrabajos,
@@ -48,13 +55,44 @@ async def enviar_consulta(
     # Despacho al primer nodo de la cadena por WebSocket. Si no está
     # conectado, el trabajo queda EN_COLA — lo redespacha el vigilante de
     # cola (ver `reintentar_cola` más abajo).
+    gestor = request.app.state.gestor_conexiones
     primero = trabajo.cadena_nodo_ids[0]
-    asignacion = construir_asignacion(
-        trabajo, timeout_ms=int(configuracion.trabajo_timeout_s * 1000)
-    )
-    despachado = await request.app.state.gestor_conexiones.enviar(primero, asignacion)
+    timeout_ms = int(configuracion.trabajo_timeout_s * 1000)
+    asignacion = construir_asignacion(trabajo, timeout_ms=timeout_ms, rol=ROL_PRIMARIA)
+    despachado = await gestor.enviar(primero, asignacion)
     if despachado:
         trabajo.estado = EstadoTrabajo.EN_CURSO
+
+        # Verificación por réplicas (opcional, ver dominio/trabajos.py):
+        # solo se activa si se puede despachar AMBAS copias ahora mismo —
+        # si falta un segundo candidato independiente, o el nodo elegido
+        # para verificar no tiene canal abierto, el trabajo sigue su
+        # camino normal de una sola copia. No queda a mitad de camino: o
+        # las dos cadenas quedan despachadas, o ninguna verificación queda
+        # registrada.
+        if configuracion.tasa_verificacion > 0 and random.random() < configuracion.tasa_verificacion:
+            try:
+                cadena_verificacion = armar_cadena(
+                    candidatos,
+                    payload.modelo_hash,
+                    payload.total_posiciones,
+                    excluir_nodo_ids=frozenset(trabajo.cadena_nodo_ids),
+                )
+            except PosicionSinCandidatosError:
+                cadena_verificacion = None
+
+            if cadena_verificacion is not None:
+                asignacion_verificacion = construir_asignacion(
+                    trabajo,
+                    timeout_ms=timeout_ms,
+                    rol=ROL_VERIFICACION,
+                    cadena=cadena_verificacion.nodo_ids_en_orden,
+                )
+                despachado_verificacion = await gestor.enviar(
+                    cadena_verificacion.nodo_ids_en_orden[0], asignacion_verificacion
+                )
+                if despachado_verificacion:
+                    trabajo.cadena_verificacion_nodo_ids = cadena_verificacion.nodo_ids_en_orden
 
     await repositorio_trabajos.guardar(trabajo)
     return {
@@ -62,6 +100,7 @@ async def enviar_consulta(
         "cadena": trabajo.cadena_nodo_ids,
         "estado": trabajo.estado.name.lower(),
         "despachado": despachado,
+        "verificacion_activa": bool(trabajo.cadena_verificacion_nodo_ids),
     }
 
 
@@ -81,6 +120,9 @@ async def consultar_trabajo(
         "estado": trabajo.estado.name.lower(),
         "texto_resultado": trabajo.texto_resultado,
         "error": trabajo.error,
+        "cadena_verificacion": trabajo.cadena_verificacion_nodo_ids,
+        "resultado_primario": trabajo.resultado_primario,
+        "resultado_secundario": trabajo.resultado_secundario,
     }
 
 

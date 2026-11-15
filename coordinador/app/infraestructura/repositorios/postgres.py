@@ -61,6 +61,15 @@ ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS error TEXT;
 -- Columna agregada para el vigilante de timeout (ver marcar_vencidos):
 -- sin esto no hay forma de saber cuánto lleva un trabajo EN_CURSO.
 ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now();
+-- Columnas agregadas para verificación por réplicas. Cada resultado crudo
+-- se guarda como (exito, texto) en dos columnas en vez de JSONB: no hay
+-- codec de JSON registrado en el pool y esto evita agregar uno solo para
+-- esto. NULL en la columna _exito significa "esa copia todavía no llegó".
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS cadena_verificacion_nodo_ids TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_primario_exito BOOLEAN;
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_primario_texto TEXT;
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_secundario_exito BOOLEAN;
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_secundario_texto TEXT;
 """
 
 
@@ -189,6 +198,13 @@ class RepositorioCandidatosPostgres:
         return [fila["nodo_id"] for fila in filas]
 
 
+def _resultado_replica(fila: asyncpg.Record, prefijo: str) -> tuple[bool, str] | None:
+    exito = fila[f"{prefijo}_exito"]
+    if exito is None:
+        return None
+    return (exito, fila[f"{prefijo}_texto"] or "")
+
+
 def _fila_a_trabajo(fila: asyncpg.Record) -> Trabajo:
     return Trabajo(
         trabajo_id=str(fila["trabajo_id"]),
@@ -198,6 +214,9 @@ def _fila_a_trabajo(fila: asyncpg.Record) -> Trabajo:
         estado=cast(EstadoTrabajo, EstadoTrabajo[fila["estado"]]),
         texto_resultado=fila["texto_resultado"],
         error=fila["error"],
+        cadena_verificacion_nodo_ids=list(fila["cadena_verificacion_nodo_ids"]),
+        resultado_primario=_resultado_replica(fila, "resultado_primario"),
+        resultado_secundario=_resultado_replica(fila, "resultado_secundario"),
     )
 
 
@@ -223,18 +242,30 @@ class RepositorioTrabajosPostgres:
         self._pool = pool
 
     async def guardar(self, trabajo: Trabajo) -> None:
+        exito_primario = trabajo.resultado_primario[0] if trabajo.resultado_primario else None
+        texto_primario = trabajo.resultado_primario[1] if trabajo.resultado_primario else None
+        exito_secundario = trabajo.resultado_secundario[0] if trabajo.resultado_secundario else None
+        texto_secundario = trabajo.resultado_secundario[1] if trabajo.resultado_secundario else None
+
         await self._pool.execute(
             """
             INSERT INTO trabajos
                 (trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
-                 texto_resultado, error, actualizado_en)
-            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, now())
+                 texto_resultado, error, actualizado_en, cadena_verificacion_nodo_ids,
+                 resultado_primario_exito, resultado_primario_texto,
+                 resultado_secundario_exito, resultado_secundario_texto)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11, $12)
             ON CONFLICT (trabajo_id) DO UPDATE SET
                 estado = EXCLUDED.estado,
                 cadena_nodo_ids = EXCLUDED.cadena_nodo_ids,
                 texto_resultado = EXCLUDED.texto_resultado,
                 error = EXCLUDED.error,
-                actualizado_en = now()
+                actualizado_en = now(),
+                cadena_verificacion_nodo_ids = EXCLUDED.cadena_verificacion_nodo_ids,
+                resultado_primario_exito = EXCLUDED.resultado_primario_exito,
+                resultado_primario_texto = EXCLUDED.resultado_primario_texto,
+                resultado_secundario_exito = EXCLUDED.resultado_secundario_exito,
+                resultado_secundario_texto = EXCLUDED.resultado_secundario_texto
             """,
             trabajo.trabajo_id,
             trabajo.usuario_id,
@@ -243,13 +274,20 @@ class RepositorioTrabajosPostgres:
             trabajo.estado.name,
             trabajo.texto_resultado,
             trabajo.error,
+            trabajo.cadena_verificacion_nodo_ids,
+            exito_primario,
+            texto_primario,
+            exito_secundario,
+            texto_secundario,
         )
 
     async def obtener(self, trabajo_id: str) -> Trabajo | None:
         fila = await self._pool.fetchrow(
             """
             SELECT trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
-                   texto_resultado, error
+                   texto_resultado, error, cadena_verificacion_nodo_ids,
+                   resultado_primario_exito, resultado_primario_texto,
+                   resultado_secundario_exito, resultado_secundario_texto
               FROM trabajos
              WHERE trabajo_id = $1::uuid
             """,
@@ -263,7 +301,9 @@ class RepositorioTrabajosPostgres:
         filas = await self._pool.fetch(
             """
             SELECT trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
-                   texto_resultado, error
+                   texto_resultado, error, cadena_verificacion_nodo_ids,
+                   resultado_primario_exito, resultado_primario_texto,
+                   resultado_secundario_exito, resultado_secundario_texto
               FROM trabajos
              WHERE estado = $1
             """,
@@ -279,7 +319,7 @@ class RepositorioTrabajosPostgres:
                    error = $3,
                    texto_resultado = NULL,
                    actualizado_en = to_timestamp($1::double precision)
-             WHERE estado = 'EN_CURSO'
+             WHERE estado IN ('EN_CURSO', 'VERIFICANDO')
                AND actualizado_en < to_timestamp($1::double precision - $2::double precision)
             RETURNING trabajo_id
             """,

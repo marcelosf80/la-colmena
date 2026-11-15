@@ -60,20 +60,61 @@ El estado efectivo lo decide el coordinador, no el nodo (ver
   "posicion": 0,
   "cadena": ["n0", "n1"],
   "siguiente_nodo_id": "n1",
-  "timeout_ms": 60000
+  "timeout_ms": 60000,
+  "rol": "primaria"
 }
 ```
+
+`rol` es `"primaria"` o `"verificacion"` — ver "Verificación por réplicas"
+más abajo. El nodo no decide nada con él, solo lo repite en su `resultado`.
 
 **Nodo → coordinador** (opcional, `latido` por el mismo canal):
 `{"tipo": "latido", "consultas_en_curso": 2, "acepta_trabajo": true}`
 
 **Nodo → coordinador** (`resultado`, cierra una asignación procesada):
-`{"tipo": "resultado", "trabajo_id": "...", "exito": true, "texto": "...", "error": ""}`
+`{"tipo": "resultado", "trabajo_id": "...", "exito": true, "texto": "...", "error": "", "rol": "primaria"}`
 
-El coordinador pasa el trabajo a `COMPLETADO` (guarda `texto_resultado`) o a
-`FALLIDO` (guarda `error`). Un `resultado` sobre un trabajo ya terminal se
-ignora (idempotente ante reenvíos tras una reconexión). El usuario lo lee con
+Sin verificación activa, el coordinador pasa el trabajo directo a
+`COMPLETADO` (guarda `texto_resultado`) o a `FALLIDO` (guarda `error`). Un
+`resultado` sobre un trabajo ya terminal se ignora (idempotente ante
+reenvíos tras una reconexión). El usuario lo lee con
 `GET /consultas/{trabajo_id}` (`texto_resultado` / `error`).
+
+#### Verificación por réplicas
+
+Con `COMUNIDAD_IA_TASA_VERIFICACION` > 0 (0.0 por defecto, desactivada), una
+fracción de las consultas se despacha por duplicado: dos nodos
+independientes —nunca el mismo nodo para las dos copias— reciben la misma
+consulta, uno con `rol: "primaria"` y otro con `rol: "verificacion"`. Esto
+solo se activa si **ambas** copias se pueden despachar en el momento (hay
+un segundo candidato y tiene el canal abierto); si no, la consulta sigue su
+camino normal de una sola copia, sin verificación.
+
+Mientras llega una sola de las dos respuestas, el trabajo queda
+`VERIFICANDO` (no `EN_CURSO`: son estados distintos, aunque el vigilante de
+timeout trata a los dos igual). Cuando llegan las dos:
+
+- **Coinciden** (mismo éxito, mismo texto exacto) → `COMPLETADO` con ese
+  texto.
+- **No coinciden** — incluida la combinación "una falló y la otra no", o
+  las dos fallaron con errores distintos — → `FALLIDO`, con el error
+  genérico de discrepancia. No se intenta adivinar cuál de las dos es la
+  correcta: una discrepancia es la señal de que algo anda mal (nodo
+  deshonesto o roto), así que el diseño prefiere fallar visible.
+
+`GET /consultas/{trabajo_id}` expone `cadena_verificacion`,
+`resultado_primario` y `resultado_secundario` (cada uno `[exito, texto]` o
+`null` si esa copia todavía no llegó) para poder inspeccionar una
+discrepancia después de que pasó.
+
+**Limitación conocida, a propósito:** por ahora la comparación es de texto
+exacto. Un LLM real con sampling (temperatura > 0) puede dar respuestas
+válidas pero distintas entre dos nodos honestos, lo que haría fallar la
+verificación por una discrepancia legítima, no por un nodo malicioso. Para
+un uso real hace falta temperatura 0 (greedy, determinístico) en los nodos
+que participan de verificación, o una comparación más laxa (similaridad en
+vez de igualdad exacta) — ninguna de las dos cosas está implementada
+todavía.
 
 Al desconectarse, el nodo se marca `CAIDO` de inmediato.
 

@@ -33,7 +33,19 @@ use tungstenite::Message;
 /// loop pueda revisar si hay un resultado pendiente de enviar.
 const TIMEOUT_LECTURA: Duration = Duration::from_millis(200);
 
+fn rol_primaria() -> String {
+    "primaria".to_string()
+}
+
 /// Mensaje `asignacion` del coordinador (ver `app/api/websockets.py`).
+///
+/// `rol` distingue, cuando el coordinador activó verificación por réplicas
+/// para este trabajo, si esta asignación es la copia "primaria" o la
+/// "verificacion" — dos nodos independientes procesan el mismo prompt y el
+/// coordinador compara. El nodo no hace nada distinto según el rol: solo
+/// tiene que devolverlo tal cual en el `resultado` (ver `MensajeResultado`).
+/// Por defecto "primaria", para que un coordinador viejo sin este campo
+/// siga funcionando igual que antes.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct Asignacion {
     #[serde(default)]
@@ -50,6 +62,8 @@ pub struct Asignacion {
     pub siguiente_nodo_id: Option<String>,
     #[serde(default)]
     pub timeout_ms: u64,
+    #[serde(default = "rol_primaria")]
+    pub rol: String,
 }
 
 /// Intervalo entre reintentos de conexión. Corto a propósito: la red de
@@ -59,6 +73,11 @@ const ESPERA_RECONEXION: Duration = Duration::from_secs(5);
 /// Mensaje `resultado` hacia el coordinador (ver `app/api/websockets.py`).
 /// Cierra el ciclo de una asignación: el nodo ya corrió el motor y devuelve
 /// el texto generado (o el error, si falló).
+///
+/// `rol` tiene que ser el mismo que traía la `Asignacion` que originó este
+/// resultado — el nodo solo lo repite, no decide nada con él. El
+/// coordinador lo usa para saber si este resultado es la copia "primaria"
+/// o la "verificacion" cuando hay verificación por réplicas activa.
 #[derive(Debug, Clone, Serialize)]
 pub struct MensajeResultado {
     pub tipo: String,
@@ -68,26 +87,30 @@ pub struct MensajeResultado {
     pub texto: String,
     #[serde(default)]
     pub error: String,
+    #[serde(default = "rol_primaria")]
+    pub rol: String,
 }
 
 impl MensajeResultado {
-    pub fn exitoso(trabajo_id: impl Into<String>, texto: impl Into<String>) -> Self {
+    pub fn exitoso(trabajo_id: impl Into<String>, texto: impl Into<String>, rol: impl Into<String>) -> Self {
         Self {
             tipo: "resultado".to_string(),
             trabajo_id: trabajo_id.into(),
             exito: true,
             texto: texto.into(),
             error: String::new(),
+            rol: rol.into(),
         }
     }
 
-    pub fn fallido(trabajo_id: impl Into<String>, error: impl Into<String>) -> Self {
+    pub fn fallido(trabajo_id: impl Into<String>, error: impl Into<String>, rol: impl Into<String>) -> Self {
         Self {
             tipo: "resultado".to_string(),
             trabajo_id: trabajo_id.into(),
             exito: false,
             texto: String::new(),
             error: error.into(),
+            rol: rol.into(),
         }
     }
 }
@@ -239,8 +262,8 @@ mod tests {
     #[test]
     fn resultado_exitoso_serializa_con_los_campos_que_espera_el_coordinador() {
         // Contrato con `app/api/websockets.py::_procesar_resultado`: debe
-        // traer tipo, trabajo_id, exito y texto.
-        let mensaje = MensajeResultado::exitoso("t1", "hola mundo");
+        // traer tipo, trabajo_id, exito, texto y rol.
+        let mensaje = MensajeResultado::exitoso("t1", "hola mundo", "primaria");
         let json = serde_json::to_value(&mensaje).unwrap();
 
         assert_eq!(json["tipo"], "resultado");
@@ -248,16 +271,38 @@ mod tests {
         assert_eq!(json["exito"], true);
         assert_eq!(json["texto"], "hola mundo");
         assert_eq!(json["error"], "");
+        assert_eq!(json["rol"], "primaria");
     }
 
     #[test]
     fn resultado_fallido_serializa_exito_false_con_el_error() {
-        let mensaje = MensajeResultado::fallido("t2", "timeout del motor");
+        let mensaje = MensajeResultado::fallido("t2", "timeout del motor", "verificacion");
         let json = serde_json::to_value(&mensaje).unwrap();
 
         assert_eq!(json["exito"], false);
         assert_eq!(json["error"], "timeout del motor");
         assert_eq!(json["texto"], "");
+        assert_eq!(json["rol"], "verificacion");
+    }
+
+    #[test]
+    fn asignacion_sin_rol_toma_primaria_por_defecto() {
+        // Compatibilidad: un coordinador viejo que no mande "rol" no debe
+        // romper el parseo.
+        let asignacion: Asignacion =
+            serde_json::from_str(r#"{"tipo": "asignacion", "trabajo_id": "t1"}"#).unwrap();
+
+        assert_eq!(asignacion.rol, "primaria");
+    }
+
+    #[test]
+    fn asignacion_respeta_el_rol_de_verificacion_si_viene() {
+        let asignacion: Asignacion = serde_json::from_str(
+            r#"{"tipo": "asignacion", "trabajo_id": "t1", "rol": "verificacion"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(asignacion.rol, "verificacion");
     }
 
     #[test]

@@ -10,14 +10,21 @@ el transporte deje de ser experimental):
 Coordinador → nodo:
     {"tipo": "asignacion", "trabajo_id": "...", "modelo_hash": "...",
      "posicion": 0, "cadena": ["n0", "n1"], "siguiente_nodo_id": "n1",
-     "timeout_ms": 60000}
+     "timeout_ms": 60000, "rol": "primaria"}
+
+`rol` es "primaria" o "verificacion": cuando el coordinador activa
+verificación por réplicas para un trabajo (ver `rutas_usuarios.py` y
+`dominio/trabajos.py::aplicar_resultado_replica`), despacha la MISMA
+consulta a dos cadenas de nodos independientes y compara. El nodo no hace
+nada distinto según el rol — solo tiene que devolverlo tal cual en su
+`resultado`.
 
 Nodo → coordinador (opcional, heartbeat por el mismo canal):
     {"tipo": "latido", "consultas_en_curso": 2, "acepta_trabajo": true}
 
 Nodo → coordinador (resultado de una asignación ya procesada):
     {"tipo": "resultado", "trabajo_id": "...", "exito": true,
-     "texto": "...", "error": ""}
+     "texto": "...", "error": "", "rol": "primaria"}
 
 Si el nodo se desconecta, se marca CAIDO de inmediato: el planificador deja
 de asignarle trabajo hasta que vuelva a registrarse y latir.
@@ -32,7 +39,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.dominio.heartbeat import Latido, estado_efectivo
 from app.dominio.nodos import EstadoNodo
-from app.dominio.trabajos import aplicar_resultado
+from app.dominio.trabajos import ROL_PRIMARIA, aplicar_resultado_replica
 from app.infraestructura.repositorios.base import RepositorioCandidatos, RepositorioTrabajos
 
 registro = logging.getLogger("la_colmena")
@@ -112,8 +119,9 @@ async def _procesar_resultado(repositorio_trabajos: RepositorioTrabajos, mensaje
         if trabajo is None:
             registro.warning("resultado para trabajo desconocido %s, se ignora", trabajo_id)
             return
-        trabajo = aplicar_resultado(
+        trabajo = aplicar_resultado_replica(
             trabajo,
+            rol=str(mensaje.get("rol", ROL_PRIMARIA)),
             exito=bool(mensaje.get("exito", False)),
             texto=str(mensaje.get("texto", "")),
             error=str(mensaje.get("error", "")),

@@ -22,6 +22,13 @@ class Configuracion(BaseSettings):
     # trabajos EN_COLA (llegaron antes de que el nodo elegido abriera su
     # canal, o no había candidatos para alguna posición todavía).
     reintento_cola_s: float = 10.0
+    # Fracción (0.0-1.0) de consultas que se despachan por duplicado a dos
+    # nodos independientes para comparar resultados. 0.0 (por defecto) la
+    # desactiva por completo — nunca rompe un despliegue con un solo nodo
+    # por modelo, porque si no hay un segundo candidato independiente la
+    # verificación simplemente no se activa para ese trabajo (ver
+    # rutas_usuarios.py::enviar_consulta).
+    tasa_verificacion: float = 0.0
 
     model_config = {"env_prefix": "COMUNIDAD_IA_"}
 

@@ -88,3 +88,23 @@ def test_prioriza_posicion_vacia_para_nodo_nuevo() -> None:
     posicion = posicion_prioritaria_para_nodo_nuevo(candidatos, MODELO, total_posiciones=3)
 
     assert posicion in (1, 2)  # posiciones sin ningún candidato todavía
+
+
+def test_armar_cadena_excluye_nodos_pedidos() -> None:
+    candidatos = [
+        Candidato(MODELO, posicion=0, nodo=_nodo("n1"), consultas_en_curso=0),
+        Candidato(MODELO, posicion=0, nodo=_nodo("n2"), consultas_en_curso=5),
+    ]
+
+    # n1 sería el elegido normalmente (menos carga); al excluirlo, debe
+    # caer en n2 en vez de fallar.
+    cadena = armar_cadena(candidatos, MODELO, total_posiciones=1, excluir_nodo_ids=frozenset({"n1"}))
+
+    assert cadena.nodo_ids_en_orden == ["n2"]
+
+
+def test_armar_cadena_falla_si_la_exclusion_deja_la_posicion_sin_candidatos() -> None:
+    candidatos = [Candidato(MODELO, posicion=0, nodo=_nodo("n1"))]
+
+    with pytest.raises(PosicionSinCandidatosError):
+        armar_cadena(candidatos, MODELO, total_posiciones=1, excluir_nodo_ids=frozenset({"n1"}))

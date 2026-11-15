@@ -228,7 +228,11 @@ async fn main() -> anyhow::Result<()> {
                         // Reenviar la activación al siguiente nodo queda
                         // pendiente como feature aparte.
                         if emisor_resultados
-                            .send(MensajeResultado::exitoso(asignacion.trabajo_id.clone(), texto))
+                            .send(MensajeResultado::exitoso(
+                                asignacion.trabajo_id.clone(),
+                                texto,
+                                asignacion.rol.clone(),
+                            ))
                             .is_err()
                         {
                             warn!(trabajo_id = %asignacion.trabajo_id, "no se pudo encolar el resultado: el canal de trabajo se cerró");
@@ -239,6 +243,7 @@ async fn main() -> anyhow::Result<()> {
                         let _ = emisor_resultados.send(MensajeResultado::fallido(
                             asignacion.trabajo_id.clone(),
                             error.to_string(),
+                            asignacion.rol.clone(),
                         ));
                     }
                     Err(error) => {
@@ -246,6 +251,7 @@ async fn main() -> anyhow::Result<()> {
                         let _ = emisor_resultados.send(MensajeResultado::fallido(
                             asignacion.trabajo_id.clone(),
                             format!("la tarea del motor falló al ejecutarse: {error}"),
+                            asignacion.rol.clone(),
                         ));
                     }
                 }

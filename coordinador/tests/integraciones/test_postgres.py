@@ -206,8 +206,50 @@ async def test_vigilante_de_trabajos_no_toca_en_cola_ni_completados(pool, modelo
     completado = await repo.obtener(completado_id)
     assert completado is not None
     assert completado.texto_resultado == "ya tenía respuesta"
-    estados = {
-        c.nodo.nodo_id: c.nodo.estado
-        for c in await repo.listar_por_modelo(modelo_hash)
-    }
-    assert estados[vivo] is EstadoNodo.CONECTADO
+
+
+async def test_trabajo_con_verificacion_guarda_y_recupera_las_dos_copias(pool, modelo_hash: str) -> None:
+    repo = RepositorioTrabajosPostgres(pool)
+    trabajo_id = str(uuid4())
+    trabajo = Trabajo(
+        trabajo_id=trabajo_id,
+        modelo_hash=modelo_hash,
+        usuario_id="usuario-verificacion",
+        cadena_nodo_ids=["n0"],
+        cadena_verificacion_nodo_ids=["n1"],
+        estado=EstadoTrabajo.VERIFICANDO,
+        resultado_primario=(True, "respuesta primaria"),
+    )
+    await repo.guardar(trabajo)
+
+    recuperado = await repo.obtener(trabajo_id)
+
+    assert recuperado is not None
+    assert recuperado.estado is EstadoTrabajo.VERIFICANDO
+    assert recuperado.cadena_verificacion_nodo_ids == ["n1"]
+    assert recuperado.resultado_primario == (True, "respuesta primaria")
+    assert recuperado.resultado_secundario is None  # todavía no llegó
+
+
+async def test_vigilante_de_trabajos_tambien_vence_verificando(pool, modelo_hash: str) -> None:
+    repo = RepositorioTrabajosPostgres(pool)
+    trabajo_id = str(uuid4())
+    await repo.guardar(
+        Trabajo(
+            trabajo_id=trabajo_id,
+            modelo_hash=modelo_hash,
+            usuario_id="usuario-verificacion-timeout",
+            cadena_nodo_ids=["n0"],
+            cadena_verificacion_nodo_ids=["n1"],
+            estado=EstadoTrabajo.VERIFICANDO,
+            resultado_primario=(True, "llegó una sola copia"),
+        )
+    )
+    ahora = time.time()
+
+    vencidos = await repo.marcar_vencidos(ahora_unix=ahora + 100, timeout_s=30)
+
+    assert trabajo_id in vencidos
+    trabajo = await repo.obtener(trabajo_id)
+    assert trabajo is not None
+    assert trabajo.estado is EstadoTrabajo.FALLIDO

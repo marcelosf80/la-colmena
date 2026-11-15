@@ -7,6 +7,96 @@ hoy*, qué se verificó realmente y qué le falta contar a quien se sume
 después. Se actualiza cada vez que el estado general cambia de forma
 relevante (no en cada commit).
 
+## 2026-11-12 (4) — Verificación por réplicas
+
+Cierra el gap de seguridad más importante que había quedado señalado desde
+la auditoría original del proyecto. Se descartó seguir con el pipeline
+multi-nodo real por ahora: el motor real usa `llama-server` (un modelo
+completo por nodo), no capas — "reenviar activaciones entre nodos" tal
+como lo describían los docs originales no tiene sentido con esa
+arquitectura. Ese pendiente queda documentado como una contradicción de
+diseño a resolver, no como "falta implementar".
+
+**Qué cambió**
+
+- `dominio/trabajos.py`: nuevo estado `VERIFICANDO` (llegó una de las dos
+  copias, esperando la otra). Nueva función pura
+  `aplicar_resultado_replica`: si el trabajo no tiene verificación activa,
+  se comporta exactamente como `aplicar_resultado` de siempre — un solo
+  codepath para todos los casos. Si la tiene, guarda el resultado crudo de
+  cada copia y, cuando llegan las dos, compara: coinciden → `COMPLETADO`;
+  cualquier discrepancia (textos distintos, o una falló y la otra no, o
+  las dos fallaron con errores distintos) → `FALLIDO` con un mensaje
+  genérico. A propósito no se intenta "elegir la más probable" — ver nota
+  de diseño en el docstring.
+- `planificador.py::armar_cadena` ahora acepta `excluir_nodo_ids`: la
+  segunda cadena de verificación nunca puede compartir nodos con la
+  primera (si no, un nodo se estaría verificando a sí mismo).
+- `construir_asignacion` ahora lleva `rol` ("primaria"/"verificacion") y
+  acepta una cadena explícita (para poder construir el mensaje de la copia
+  de verificación, que vive en un campo separado del trabajo).
+- `rutas_usuarios.py::enviar_consulta`: con `COMUNIDAD_IA_TASA_VERIFICACION`
+  > 0 (0.0 por defecto, o sea desactivada), una fracción de las consultas
+  intenta despachar una segunda copia a un nodo independiente. Solo queda
+  activa si **las dos** copias se despachan ahora mismo — si falta
+  candidato o el nodo de verificación no tiene canal abierto, la consulta
+  sigue su camino normal de una sola copia. Nunca queda a mitad de camino.
+- **Rust**: `Asignacion` y `MensajeResultado` suman el campo `rol`
+  (default `"primaria"` vía `#[serde(default)]`, así un coordinador viejo
+  sin este campo no rompe nada). El nodo no decide nada con el rol, solo
+  lo repite tal cual del mensaje que recibió al mensaje que manda de
+  vuelta.
+- Postgres: 5 columnas nuevas (`cadena_verificacion_nodo_ids`,
+  `resultado_primario_exito/texto`, `resultado_secundario_exito/texto`).
+  Se guardó como columnas simples en vez de JSONB a propósito: no hay
+  codec de JSON registrado en el pool todavía, y agregar uno solo para
+  esto no valía la pena.
+- `docs/heartbeat-y-canal.md` actualizado con el protocolo nuevo — tenía
+  el formato de mensajes duplicado de `websockets.py` y había quedado
+  desactualizado, así que de paso quedó sincronizado.
+
+**Bug encontrado en el camino:** `tests/integraciones/test_postgres.py`
+tenía código de otro test pegado por error al final de
+`test_vigilante_de_trabajos_no_toca_en_cola_ni_completados`, referenciando
+una variable `vivo` que no existe en ese scope. Como es un test de
+integración (se salta sin Postgres real), nunca se había ejecutado y nadie
+lo había notado — habría roto el job de Postgres en CI. Corregido.
+
+**Verificación**
+
+- **74 tests** unitarios (57 + 17 nuevos). Incluye dos tests end-to-end
+  reales con `TestClient` y dos WebSockets abiertos a la vez, confirmando
+  que cada nodo recibe su propia copia con el rol correcto y que ningún
+  nodo aparece en la cadena del otro.
+- 2 tests de integración Postgres nuevos (no corren acá, los valida CI).
+- Lado Rust: **no se pudo compilar en este entorno** (mismo límite de
+  siempre — rustc 1.75 vía apt no resuelve el lockfile v4 sin repinear
+  media docena de dependencias). Revisado a mano con cuidado: el cambio es
+  chico y mecánico (dos campos nuevos con default, tres call sites
+  actualizados). Si algo no compila, CI lo va a mostrar.
+
+**Limitación importante, documentada en `heartbeat-y-canal.md`:** la
+comparación es de texto exacto. Un LLM con sampling (temperatura > 0)
+puede dar respuestas distintas pero igualmente válidas entre dos nodos
+honestos — eso haría fallar la verificación por una discrepancia que no es
+un ataque. Para que esto sirva en serio hace falta temperatura 0 en los
+nodos que participan de verificación (coordinable desde la config del
+modelo en `llama-server`), o una comparación más laxa. Ninguna de las dos
+cosas está hecha todavía — por eso `tasa_verificacion` queda en 0.0 por
+defecto, para que nadie lo prenda sin saber esto.
+
+**Pendiente que queda**
+
+- Las dos cosas de la nota de arriba (temperatura 0 o comparación laxa).
+- Sin créditos/reputación conectados a esto todavía: cuando hay
+  discrepancia, ningún nodo pierde créditos ni queda marcado como
+  sospechoso — el libro de créditos (`dominio/creditos.py`) sigue
+  desconectado de este flujo.
+- El nodo no sabe que su trabajo venció del lado del coordinador.
+- Pipeline multi-nodo real: contradicción de arquitectura sin resolver
+  (ver más arriba), no un simple "falta hacer".
+- Nodo Android: descartado del alcance.
+
 ## 2026-11-12 (3) — Cola con reintento
 
 Cierra el otro pendiente que había quedado anotado: un trabajo que no se
