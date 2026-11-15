@@ -56,8 +56,8 @@ Implementado y probado contra el coordinador FastAPI real:
 
 ## Pendiente conocido
 
-1. **Prompt real por asignación**: hoy el nodo procesa `--prompt-demo`; el
-   contrato de asignación no incluye todavía el prompt del usuario.
+1. ~~Prompt real por asignación~~: la asignación ya trae `prompt`; el nodo lo
+   ejecuta y usa `--prompt-demo` solo como respaldo si falta.
 2. Benchmark real al conectar, en vez de reportar `tokens_por_segundo: 0.0`
    (y `tiene_gpu: false` fijo).
 3. Cancelación/timeout local: si el coordinador marca el trabajo FALLIDO, el
@@ -96,6 +96,6 @@ cargo build --release
 cargo test
 ```
 
-37 tests cubriendo: políticas de recursos, máquina de estados de control de
+39 tests cubriendo: políticas de recursos, máquina de estados de control de
 usuario, contrato de serialización del canal (asignación/resultado), motor
 simulado, cliente HTTP del coordinador y registro local de recibos.

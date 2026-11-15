@@ -57,6 +57,7 @@ El estado efectivo lo decide el coordinador, no el nodo (ver
   "tipo": "asignacion",
   "trabajo_id": "uuid",
   "modelo_hash": "...",
+  "prompt": "texto de la consulta del usuario",
   "posicion": 0,
   "cadena": ["n0", "n1"],
   "siguiente_nodo_id": "n1",
@@ -67,6 +68,9 @@ El estado efectivo lo decide el coordinador, no el nodo (ver
 
 `rol` es `"primaria"` o `"verificacion"` — ver "Verificación por réplicas"
 más abajo. El nodo no decide nada con él, solo lo repite en su `resultado`.
+
+`prompt` es el texto real de la consulta: el nodo lo ejecuta con su motor.
+Si falta (contrato viejo), el nodo cae a su `--prompt-demo`.
 
 **Nodo → coordinador** (opcional, `latido` por el mismo canal):
 `{"tipo": "latido", "consultas_en_curso": 2, "acepta_trabajo": true}`

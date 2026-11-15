@@ -65,8 +65,8 @@ struct Argumentos {
     #[arg(long, default_value_t = 8718)]
     puerto_motor: u16,
 
-    /// Prompt de demostración para procesar asignaciones mientras el
-    /// protocolo de activaciones no viaje por el canal (Fase 1).
+    /// Prompt de respaldo cuando el coordinador no manda `prompt` en la
+    /// asignación (compatibilidad con contratos viejos o pruebas locales).
     #[arg(long, default_value = "En una frase, qué es el cómputo compartido para IA:")]
     prompt_demo: String,
 }
@@ -193,8 +193,14 @@ async fn main() -> anyhow::Result<()> {
                 // El motor es un servidor HTTP: la llamada es bloqueante,
                 // así que corre en spawn_blocking para no frenar heartbeat
                 // ni control de usuario.
+                // Prompt real de la consulta; si el coordinador no lo manda
+                // (contrato viejo), cae al `--prompt-demo` para no romper.
+                let prompt = if asignacion.prompt.is_empty() {
+                    prompt_demo.clone()
+                } else {
+                    asignacion.prompt.clone()
+                };
                 let motor = motor.clone();
-                let prompt = prompt_demo.clone();
                 let motor_para_tokens = motor.clone();
                 let resultado = tokio::task::spawn_blocking(move || {
                     motor.procesar(&prompt.into_bytes())

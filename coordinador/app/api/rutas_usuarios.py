@@ -48,6 +48,7 @@ async def enviar_consulta(
         trabajo_id=str(uuid4()),
         modelo_hash=payload.modelo_hash,
         usuario_id=payload.usuario_id,
+        prompt=payload.prompt,
         cadena_nodo_ids=cadena.nodo_ids_en_orden,
         estado=EstadoTrabajo.EN_COLA,
     )
@@ -116,6 +117,7 @@ async def consultar_trabajo(
         "trabajo_id": trabajo.trabajo_id,
         "usuario_id": trabajo.usuario_id,
         "modelo_hash": trabajo.modelo_hash,
+        "prompt": trabajo.prompt,
         "cadena": trabajo.cadena_nodo_ids,
         "estado": trabajo.estado.name.lower(),
         "texto_resultado": trabajo.texto_resultado,

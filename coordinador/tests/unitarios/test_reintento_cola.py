@@ -72,6 +72,7 @@ async def test_reintentar_cola_despacha_cuando_hay_canal_abierto() -> None:
 
     trabajo = Trabajo(
         trabajo_id="t1", modelo_hash=modelo, usuario_id="u1",
+        prompt="prompt original de la consulta",
         cadena_nodo_ids=["n0"], estado=EstadoTrabajo.EN_COLA,
     )
     await app.state.repositorio_trabajos.guardar(trabajo)
@@ -84,6 +85,8 @@ async def test_reintentar_cola_despacha_cuando_hay_canal_abierto() -> None:
     assert despachados == ["t1"]
     assert websocket.mensajes[0]["trabajo_id"] == "t1"
     assert websocket.mensajes[0]["tipo"] == "asignacion"
+    # El reintento no debe perder el prompt que traía el trabajo.
+    assert websocket.mensajes[0]["prompt"] == "prompt original de la consulta"
     actualizado = await app.state.repositorio_trabajos.obtener("t1")
     assert actualizado.estado is EstadoTrabajo.EN_CURSO
 

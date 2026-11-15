@@ -54,6 +54,11 @@ pub struct Asignacion {
     pub trabajo_id: String,
     #[serde(default)]
     pub modelo_hash: String,
+    /// Prompt real de la consulta del usuario. Los coordinadores viejos no
+    /// lo mandan (`""` por defecto): en ese caso el nodo cae al
+    /// `--prompt-demo` para no quedar sin trabajo que ejecutar.
+    #[serde(default)]
+    pub prompt: String,
     #[serde(default)]
     pub posicion: u32,
     #[serde(default)]
@@ -303,6 +308,26 @@ mod tests {
         .unwrap();
 
         assert_eq!(asignacion.rol, "verificacion");
+    }
+
+    #[test]
+    fn asigna_el_prompt_de_la_consulta_si_viene() {
+        let asignacion: Asignacion = serde_json::from_str(
+            r#"{"tipo": "asignacion", "trabajo_id": "t1", "prompt": "¿qué es Rust?"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(asignacion.prompt, "¿qué es Rust?");
+    }
+
+    #[test]
+    fn asignacion_sin_prompt_queda_vacia_para_usar_el_demo() {
+        // Compatibilidad con coordinadores viejos: sin `prompt`, el nodo
+        // usa `--prompt-demo` en el loop principal.
+        let asignacion: Asignacion =
+            serde_json::from_str(r#"{"tipo": "asignacion", "trabajo_id": "t1"}"#).unwrap();
+
+        assert!(asignacion.prompt.is_empty());
     }
 
     #[test]

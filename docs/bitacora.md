@@ -7,6 +7,44 @@ hoy*, qué se verificó realmente y qué le falta contar a quien se sume
 después. Se actualiza cada vez que el estado general cambia de forma
 relevante (no en cada commit).
 
+## 2026-11-15 — El nodo procesa el prompt real de la consulta
+
+Hasta esta fecha el nodo ejecutaba `--prompt-demo` (un texto fijo) para toda
+asignación: la API aceptaba `prompt` en `POST /consultas` pero nunca lo
+transportaba, así que la respuesta no tenía relación con lo que pedía el
+usuario. Este cambio cierra ese gap sin tocar el alcance del MVP: sigue
+siendo una consulta atendida por un nodo con el modelo completo.
+
+**Qué cambió**
+
+- `dominio/trabajos.py`: `Trabajo` suma `prompt: str = ""` y
+  `construir_asignacion` lo incluye en el mensaje `asignacion`. El campo
+  viaja igual por el despacho inicial, el reintento de cola y la copia de
+  verificación, porque todos usan la misma función pura.
+- `rutas_usuarios.py`: `enviar_consulta` guarda `payload.prompt` en el
+  trabajo y `GET /consultas/{id}` lo devuelve.
+- Postgres: columna `prompt TEXT NOT NULL DEFAULT ''` (ALTER idempotente
+  para bases existentes) en `guardar`, `obtener` y `listar_por_estado`.
+  El repositorio en memoria no necesita cambios: guarda el objeto entero.
+- Nodo: `Asignacion` suma `prompt` con `#[serde(default)]`. El loop
+  principal ejecuta ese texto; si viene vacío (coordinador viejo) cae a
+  `--prompt-demo`.
+
+**Verificado**
+
+- Coordinador: **75 tests** (`pytest tests/unitarios`), incluidos contrato de
+  `construir_asignacion`, prompt en el despacho por WS, `GET /consultas/{id}`
+  y reintento de cola que conserva el prompt.
+- Nodo: **39 tests** (`cargo test --locked`), incluida la deserialización de
+  `prompt` y el caso sin prompt.
+- Integración Postgres: el test de guardar/recuperar trabajo ahora también
+  verifica el round-trip del prompt (se ejecuta en CI con `postgres:17`; en
+  local se salta sin `COMUNIDAD_IA_BD_URL`).
+
+**Sigue pendiente**: que el motor real use ese prompt con sampling
+determinista para que la verificación por réplicas compare textos
+comparables, y la prueba real con 2–3 PCs.
+
 ## 2026-11-12 (4) — Verificación por réplicas
 
 Cierra el gap de seguridad más importante que había quedado señalado desde

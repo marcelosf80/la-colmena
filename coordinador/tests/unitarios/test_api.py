@@ -143,6 +143,7 @@ def test_consulta_se_despacha_por_websocket_al_primer_nodo() -> None:
             asignacion = ws.receive_json()
             assert asignacion["tipo"] == "asignacion"
             assert asignacion["trabajo_id"] == cuerpo["trabajo_id"]
+            assert asignacion["prompt"] == "hola por ws"
             assert asignacion["cadena"] == [nodo_a, nodo_b]
             assert asignacion["siguiente_nodo_id"] == nodo_b
 
@@ -152,6 +153,7 @@ def test_consulta_se_despacha_por_websocket_al_primer_nodo() -> None:
         # observar dentro del mismo cliente).
         estado_trabajo = cliente.get(f"/consultas/{cuerpo['trabajo_id']}").json()
         assert estado_trabajo["estado"] == "en_curso"
+        assert estado_trabajo["prompt"] == "hola por ws"
 
 
 def test_consulta_sin_nodo_conectado_queda_en_cola() -> None:

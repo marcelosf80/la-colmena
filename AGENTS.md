@@ -10,8 +10,9 @@ consistente dentro del archivo.
 
 - **No existe inferencia cooperativa por capas.** Cada nodo carga un modelo
   `.gguf` completo en `llama-server`; `cargar(capa_desde, capa_hasta)` solo
-  valida y guarda el rango como metadato. El nodo procesa `--prompt-demo`
-  (`src/main.rs`), no una activación del nodo anterior.
+  valida y guarda el rango como metadato. El nodo procesa el `prompt` que
+  viaja en la `asignacion` (`src/main.rs`), no una activación del nodo
+  anterior. `--prompt-demo` es solo el respaldo cuando falta el prompt.
 - La topología real es **réplicas de modelos completos**: el coordinador
   reparte consultas entre nodos que sirven el mismo modelo. No prometer en
   docs/README que se suma VRAM/RAM entre máquinas.

@@ -36,6 +36,9 @@ class Trabajo:
     trabajo_id: str
     modelo_hash: str
     usuario_id: str
+    # Texto exacto que escribió el usuario. Viaja en la `asignacion` para
+    # que el nodo procese esta consulta y no un prompt de demostración.
+    prompt: str = ""
     cadena_nodo_ids: list[str] = field(default_factory=list)
     estado: EstadoTrabajo = EstadoTrabajo.EN_COLA
     texto_resultado: str | None = None
@@ -146,6 +149,7 @@ def construir_asignacion(
         "tipo": "asignacion",
         "trabajo_id": trabajo.trabajo_id,
         "modelo_hash": trabajo.modelo_hash,
+        "prompt": trabajo.prompt,
         "posicion": 0,
         "cadena": nodos,
         "siguiente_nodo_id": nodos[1] if len(nodos) > 1 else None,

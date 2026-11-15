@@ -85,6 +85,7 @@ async def test_trabajo_se_guarda_y_recupera(pool, modelo_hash: str) -> None:
         trabajo_id=str(uuid4()),
         modelo_hash=modelo_hash,
         usuario_id="usuario-integracion",
+        prompt="¿qué es un grafo dirigido?",
         cadena_nodo_ids=["n1", "n2"],
         estado=EstadoTrabajo.EN_COLA,
     )
@@ -93,6 +94,7 @@ async def test_trabajo_se_guarda_y_recupera(pool, modelo_hash: str) -> None:
     recuperado = await repo.obtener(trabajo.trabajo_id)
 
     assert recuperado is not None
+    assert recuperado.prompt == "¿qué es un grafo dirigido?"
     assert recuperado.cadena_nodo_ids == ["n1", "n2"]
     assert recuperado.estado is EstadoTrabajo.EN_COLA
 

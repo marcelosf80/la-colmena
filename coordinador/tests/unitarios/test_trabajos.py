@@ -126,6 +126,7 @@ def test_construir_asignacion_con_cadena_de_varios_nodos() -> None:
         "tipo": "asignacion",
         "trabajo_id": "t1",
         "modelo_hash": "hash",
+        "prompt": "",
         "posicion": 0,
         "cadena": ["n0", "n1", "n2"],
         "siguiente_nodo_id": "n1",
@@ -140,6 +141,21 @@ def test_construir_asignacion_con_un_solo_nodo_no_tiene_siguiente() -> None:
     asignacion = construir_asignacion(trabajo, timeout_ms=1_000)
 
     assert asignacion["siguiente_nodo_id"] is None
+
+
+def test_construir_asignacion_incluye_el_prompt_de_la_consulta() -> None:
+    # El nodo procesa este texto, no un prompt de demostración fijo.
+    trabajo = Trabajo(
+        trabajo_id="t1",
+        modelo_hash="hash",
+        usuario_id="u1",
+        prompt="Explicá qué es un grafo dirigido",
+        cadena_nodo_ids=["n0"],
+    )
+
+    asignacion = construir_asignacion(trabajo, timeout_ms=1_000)
+
+    assert asignacion["prompt"] == "Explicá qué es un grafo dirigido"
 
 
 def test_construir_asignacion_para_la_cadena_de_verificacion() -> None:

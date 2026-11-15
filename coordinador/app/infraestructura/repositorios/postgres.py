@@ -70,6 +70,9 @@ ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_primario_exito BOOLEAN;
 ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_primario_texto TEXT;
 ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_secundario_exito BOOLEAN;
 ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_secundario_texto TEXT;
+-- Prompt real de la consulta: viaja al nodo en la asignación. DEFAULT ''
+-- para las filas creadas antes de que existiera esta columna.
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS prompt TEXT NOT NULL DEFAULT '';
 """
 
 
@@ -210,6 +213,7 @@ def _fila_a_trabajo(fila: asyncpg.Record) -> Trabajo:
         trabajo_id=str(fila["trabajo_id"]),
         usuario_id=fila["usuario_id"],
         modelo_hash=fila["modelo_hash"],
+        prompt=fila["prompt"],
         cadena_nodo_ids=list(fila["cadena_nodo_ids"]),
         estado=cast(EstadoTrabajo, EstadoTrabajo[fila["estado"]]),
         texto_resultado=fila["texto_resultado"],
@@ -250,13 +254,14 @@ class RepositorioTrabajosPostgres:
         await self._pool.execute(
             """
             INSERT INTO trabajos
-                (trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
+                (trabajo_id, usuario_id, modelo_hash, prompt, cadena_nodo_ids, estado,
                  texto_resultado, error, actualizado_en, cadena_verificacion_nodo_ids,
                  resultado_primario_exito, resultado_primario_texto,
                  resultado_secundario_exito, resultado_secundario_texto)
-            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11, $12)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, now(), $9, $10, $11, $12, $13)
             ON CONFLICT (trabajo_id) DO UPDATE SET
                 estado = EXCLUDED.estado,
+                prompt = EXCLUDED.prompt,
                 cadena_nodo_ids = EXCLUDED.cadena_nodo_ids,
                 texto_resultado = EXCLUDED.texto_resultado,
                 error = EXCLUDED.error,
@@ -270,6 +275,7 @@ class RepositorioTrabajosPostgres:
             trabajo.trabajo_id,
             trabajo.usuario_id,
             trabajo.modelo_hash,
+            trabajo.prompt,
             trabajo.cadena_nodo_ids,
             trabajo.estado.name,
             trabajo.texto_resultado,
@@ -284,7 +290,7 @@ class RepositorioTrabajosPostgres:
     async def obtener(self, trabajo_id: str) -> Trabajo | None:
         fila = await self._pool.fetchrow(
             """
-            SELECT trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
+            SELECT trabajo_id, usuario_id, modelo_hash, prompt, cadena_nodo_ids, estado,
                    texto_resultado, error, cadena_verificacion_nodo_ids,
                    resultado_primario_exito, resultado_primario_texto,
                    resultado_secundario_exito, resultado_secundario_texto
@@ -300,7 +306,7 @@ class RepositorioTrabajosPostgres:
     async def listar_por_estado(self, estado: EstadoTrabajo) -> list[Trabajo]:
         filas = await self._pool.fetch(
             """
-            SELECT trabajo_id, usuario_id, modelo_hash, cadena_nodo_ids, estado,
+            SELECT trabajo_id, usuario_id, modelo_hash, prompt, cadena_nodo_ids, estado,
                    texto_resultado, error, cadena_verificacion_nodo_ids,
                    resultado_primario_exito, resultado_primario_texto,
                    resultado_secundario_exito, resultado_secundario_texto
