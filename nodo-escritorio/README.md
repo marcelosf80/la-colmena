@@ -1,8 +1,12 @@
 # nodo-escritorio
 
 Daemon en Rust que un usuario instala para donar recursos a la red. Se
-conecta al coordinador, reporta su capacidad y (en Fase 1) recibe trabajo
-para ejecutar con `llama.cpp`.
+conecta al coordinador, reporta su capacidad y recibe trabajo para ejecutar
+con `llama.cpp`.
+
+> **Alcance actual:** cada nodo carga el **modelo completo** y lo ejecuta
+> localmente. No hay particionado por capas ni suma de VRAM/RAM entre
+> máquinas; la red reparte consultas entre réplicas del mismo modelo.
 
 ## Inferencia real (llama.cpp)
 
@@ -40,38 +44,38 @@ Implementado y probado contra el coordinador FastAPI real:
   con medición de RAM/CPU (`sysinfo`); al pausar (usuario o política de
   recursos) informa `acepta_trabajo: false` para que el coordinador deje de
   asignarle trabajo.
-- **Canal WebSocket de despacho** (`canal_trabajo`): hilo bloqueante con
-  `tungstenite`, reconexión automática con backoff de 5 s; las asignaciones
-  llegan al loop principal por `mpsc` y quedan registradas en `recibo_local`.
+- **Canal WebSocket bidireccional** (`canal_trabajo`): hilo bloqueante con
+  `tungstenite`, reconexión automática cada 5 s; recibe asignaciones y devuelve
+  `{"tipo":"resultado", ...}` por el mismo canal (incluye el `rol`
+  `primaria`/`verificacion` que envió el coordinador).
+- **Inferencia real opcional** con `llama-server` como proceso hijo
+  (`MotorServidorLlama`); sin binario/pesos usa `MotorSimulado` (dev/CI).
 - Máquina de estados de control de usuario (activo / pausado / deteniendo).
-- `MotorInferencia`: trait + implementación simulada. **Pendiente**: bindear
-  `llama.cpp` real (ver sección siguiente).
-- `recibo_local`: registro append-only de trabajo realizado, ya conectado
-  al loop de despacho.
+- `recibo_local`: registro append-only del trabajo realizado con los tokens
+  reportados por el motor.
 
-## Pendiente para Fase 1
+## Pendiente conocido
 
-1. Envío de `ResultadoParcial`/`ResultadoFinal` por el canal (hoy el nodo
-   ejecuta y registra el recibo local; no devuelve activaciones al
-   siguiente nodo).
-2. Benchmark real al conectar, en vez de reportar `tokens_por_segundo: 0.0`.
-3. Descarga automática del binario `llama-server` y los pesos .gguf desde
-   el catálogo oficial (hoy se indican por CLI).
+1. **Prompt real por asignación**: hoy el nodo procesa `--prompt-demo`; el
+   contrato de asignación no incluye todavía el prompt del usuario.
+2. Benchmark real al conectar, en vez de reportar `tokens_por_segundo: 0.0`
+   (y `tiene_gpu: false` fijo).
+3. Cancelación/timeout local: si el coordinador marca el trabajo FALLIDO, el
+   nodo puede seguir consumiendo recursos.
+4. Descarga automática del binario `llama-server` y los pesos `.gguf` desde el
+   catálogo oficial (hoy se indican por CLI).
 
 ## Nota sobre versiones de dependencias
 
-Este entorno de desarrollo trae `rustc 1.75` vía `apt` (Ubuntu 24.04). Varias
-dependencias (`tokio`, `rayon`, `clap`) tuvieron que fijarse a versiones
-puntuales porque sus releases más recientes requieren Rust 2024 (rustc
-1.85+). **En un entorno real, usar Rust estable actual (`rustup install
-stable`) y quitar estos pines** — quedan documentados en `Cargo.toml` para
-que no se pierda el motivo si alguien los ve y no entiende por qué están
-fijados a versiones específicas en vez de rangos abiertos.
+`Cargo.toml` mantiene pines puntuales por compatibilidad con un entorno
+histórico que traía `rustc 1.75` (las releases nuevas de `tokio`, `rayon` y
+`clap` requieren Rust 2024). El CI usa Rust estable y compila con
+`cargo test --locked`. Si tu entorno usa estable actual, podés proponer un PR
+para quitar los pines.
 
-También se usa `minreq` en vez de `reqwest`: es un cliente HTTP bloqueante
-con muy pocas dependencias, lo que evita tanto el problema de versiones
-anterior como un binario final más pesado. Para WebSocket (Fase 1) se
-evaluará `tokio-tungstenite`.
+También se usa `minreq` en vez de `reqwest` para HTTP: es bloqueante, con muy
+pocas dependencias y un binario final más liviano. Las llamadas se delegan a
+`spawn_blocking` para no frenar el runtime async.
 
 ## Compilar y correr
 
@@ -92,6 +96,6 @@ cargo build --release
 cargo test
 ```
 
-21 tests cubriendo: políticas de recursos, máquina de estados de control de
-usuario, contrato de serialización con el coordinador, motor de inferencia
-(stub) y el registro local de recibos.
+37 tests cubriendo: políticas de recursos, máquina de estados de control de
+usuario, contrato de serialización del canal (asignación/resultado), motor
+simulado, cliente HTTP del coordinador y registro local de recibos.

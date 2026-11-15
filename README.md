@@ -17,45 +17,52 @@ como abejas aportando a una colmena.
 
 ## Badges
 
-![Estado](https://img.shields.io/badge/estado-fase%200%20%2B%20esqueleto%20fase%201-FFB300)
-![Tests](https://img.shields.io/badge/tests-44%20%2B%20nodo%20%2B%20integracion-4CAF50)
+![Estado](https://img.shields.io/badge/estado-MVP%20multi--nodo-FFB300)
+![Tests](https://img.shields.io/badge/tests-74%20%2B%2037%20nodo%20%2B%20integracion-4CAF50)
 ![Lenguajes](https://img.shields.io/badge/Python-FastAPI-3776AB?logo=python&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-daemon%20nodo-DEA584?logo=rust&logoColor=black)
 ![Protocolo](https://img.shields.io/badge/protocolo-Protobuf%20v1-A2AAFF)
 ![Contribs welcome](https://img.shields.io/badge/contribuciones-bienvenidas-FFB300)
 ![Licencia](https://img.shields.io/badge/licencia-MIT-9FA8DA)
 
-## La idea en una frase
+## Cómo funciona hoy
 
-En lugar de que una corporación corra el modelo en su datacenter, **una
-comunidad** reparte el modelo en bloques de capas entre sus propias
-computadoras y lo sirve de forma cooperativa:
+El MVP es una **red de réplicas de modelos completos**: cada nodo descarga y
+ejecuta el mismo modelo con `llama-server`, y el coordinador reparte las
+consultas entre los nodos disponibles.
 
 ```text
-Usuario ──► Coordinador ──► [Nodo 0] ──► [Nodo 1] ──► [Nodo 2] ──► respuesta
-             arma la cadena   capas 0-11  capas 12-23  capas 24-31
+Usuario ──► Coordinador ──► [Nodo A: modelo completo] ──► respuesta
+                         └─► [Nodo B: modelo completo]  (réplica / verificación)
 ```
 
-- **Throughput escala con la cantidad de nodos.** La latencia de una consulta individual no baja agregando nodos a la misma cadena: lo que crece es la capacidad total de la red.
-- **Réplicas por posición** evitan que un nodo caído rompa el modelo.
-- **Créditos desde dos lados**: donar cómputo genera aportes, consumir genera consumos; el ratio define prioridad de cola.
+- **La capacidad total escala con la cantidad de nodos.** Una consulta la
+  atiende un nodo (o dos, si la verificación está activa), no una cadena de
+  capas.
+- **Réplicas independientes** permiten seguir respondiendo si un nodo se cae y
+  comparar resultados cuando la verificación está habilitada.
+- **Créditos desde dos lados**: donar cómputo genera aportes, consumir genera
+  consumos; el ratio define prioridad de cola.
+- **Lo que todavía no hace**: no particiona un modelo entre máquinas ni suma
+  VRAM/RAM entre equipos. El particionado real por capas es una línea de I+D
+  separada, documentada en [`docs/arquitectura.md`](docs/arquitectura.md).
 
 ## Componentes
 
 | Componente | Stack | Rol | Estado |
 |---|---|---|---|
-| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, arma cadenas, lleva créditos, despacha por WS | ✅ 44 tests |
-| [`nodo-escritorio/`](nodo-escritorio/) | Rust | Daemon del usuario: registro, heartbeat real, políticas de recursos, control de usuario, canal WebSocket de despacho | ✅ motor = stub |
-| [`packages/protocolo/`](packages/protocolo/) | Protobuf v1 | Contrato compartido por todas las implementaciones | ✅ |
-| [`infraestructura/`](infraestructura/) | docker-compose | Coordinador + Postgres 17 + Redis 7 | ✅ Postgres conectado |
-| Nodo Android | Kotlin | Mismo rol del nodo de escritorio, con restricciones de batería/red | 🔜 pendiente |
+| [`coordinador/`](coordinador/) | Python 3.11 · FastAPI | Registra nodos, planifica, lleva créditos, despacha por WS y gestiona el ciclo de vida de los trabajos | ✅ 74 tests |
+| [`nodo-escritorio/`](nodo-escritorio/) | Rust | Daemon del usuario: registro, heartbeat, políticas de recursos, inferencia real y resultados por WS | ✅ 37 tests |
+| [`packages/protocolo/`](packages/protocolo/) | Protobuf v1 | Contrato compartido por todas las implementaciones | 📝 esquema definido, aún no cableado |
+| [`infraestructura/`](infraestructura/) | docker-compose | Coordinador + Postgres 17 | ✅ Postgres conectado |
+| Nodo Android | Kotlin | Mismo rol del nodo de escritorio, con restricciones de batería/red | 🚫 fuera del MVP |
 
 ## Arquitectura del coordinador
 
 Modelo de dominio documentado en [`docs/arquitectura.md`](docs/arquitectura.md).
 Decisiones destacadas:
 
-- **Planificador como función pura** sin I/O: dado el estado de candidatos, arma la cadena eligiendo el nodo menos cargado por posición. Testeable sin base de datos ni red.
+- **Planificador como función pura** sin I/O: dado el estado de candidatos, elige la réplica menos cargada para cada posición (slot lógico del modelo, no un rango de capas). Testeable sin base de datos ni red.
 - **Detección de puntos únicos de falla**: posiciones con un solo candidato disponible se priorizan al asignar nodos nuevos.
 - **Arquitectura hexagonal**: dominio limpio, repositorios intercambiables. Hoy hay dos implementaciones: **en memoria** (dev/tests) y **Postgres** (producción), con la misma interfaz async. Ver [`docs/persistencia.md`](docs/persistencia.md).
 
@@ -80,18 +87,26 @@ cargo build --release
   --modelo-hash <hash-del-modelo> \
   --posicion 0 \
   --ram-max-mb 4096 \
-  --cpu-max-pct 50
+  --cpu-max-pct 50 \
+  --llama-server ./llama-server \
+  --pesos ./modelos/<modelo>.gguf
 
+# Sin --llama-server y --pesos, el nodo usa el motor simulado (dev/CI).
 # 3. Verificar que apareció en la red
 curl http://localhost:8000/nodos/<hash-del-modelo>
 ```
 
-El nodo **lattea cada 10 segundos** al coordinador (HTTP) y **recibe
-asignaciones de trabajo por WebSocket**: si abrís una consulta mientras el
-nodo está corriendo, verás la asignación llegar en el log del daemon.
-Ver [`docs/heartbeat-y-canal.md`](docs/heartbeat-y-canal.md).
+El nodo **late cada 10 segundos** al coordinador (HTTP) y **recibe
+asignaciones por WebSocket**; al terminar, **devuelve el resultado por el
+mismo canal**. Si abrís una consulta mientras el nodo está corriendo, verás el
+ciclo completo en el log del daemon. Ver
+[`docs/heartbeat-y-canal.md`](docs/heartbeat-y-canal.md).
 
-**Con Docker (coordinador + Postgres + Redis):**
+> **Limitación actual:** el nodo todavía procesa `--prompt-demo` en lugar del
+> prompt de la consulta. El contrato de asignación aún no transporta el prompt
+> del usuario.
+
+**Con Docker (coordinador + Postgres):**
 
 ```bash
 cd infraestructura
@@ -101,8 +116,8 @@ docker compose up --build
 **Tests:**
 
 ```bash
-cd coordinador && pytest tests/unitarios -v   # 44 tests
-cd nodo-escritorio && cargo test              # 35 tests
+cd coordinador && pytest tests/unitarios -v   # 74 tests
+cd nodo-escritorio && cargo test              # 37 tests
 ```
 
 **Con Postgres local:**
@@ -114,17 +129,27 @@ uvicorn app.main:app --reload   # desde coordinador/
 
 ## Hoja de ruta
 
-- [x] Esquema Protobuf del protocolo
+**MVP actual — réplicas de modelos completos (Ruta A):**
+
+- [x] Esquema Protobuf del protocolo (definido; el transporte real sigue en JSON)
 - [x] Coordinador: dominio + API base (nodos, usuarios, créditos, planificador)
 - [x] Persistencia Postgres (repositorios async, esquema idempotente, CI con base real)
 - [x] Heartbeat real + WebSocket para despachar trabajo
 - [x] Nodo de escritorio: registro, heartbeat real, políticas de recursos, control de usuario
-- [x] Inferencia real con llama.cpp en el nodo (binario oficial `llama-server` como subprocess; sin FFI ni toolchain C++)
-- [ ] Resultado parcial/final de vuelta al coordinador (activaciones por el canal)
-- [ ] Cola de trabajos `EN_COLA` con reintento de despacho
-- [ ] Verificación de aportes por réplicas
+- [x] Inferencia real con llama.cpp (binario oficial `llama-server`, sin FFI ni toolchain C++)
+- [x] Resultado del nodo de vuelta al coordinador por WebSocket
+- [x] Timeout de trabajos `EN_CURSO` + reintento de cola `EN_COLA`
+- [x] Verificación por réplicas (dos cadenas independientes; apagada por defecto)
+- [ ] Modo determinista (temperatura 0) o comparación tolerante para verificación
+- [ ] Métricas reales de hardware y rendimiento (hoy `tiene_gpu=false`, `tokens_por_segundo=0`)
+- [ ] Reputación y créditos conectados a la verificación
+- [ ] Prueba real con 2–3 PCs y modelos completos
+
+**Fuera del MVP (no competir con lo anterior):**
+
 - [ ] Nodo Android (Kotlin)
 - [ ] Descentralización del coordinador ([discusión abierta](docs/arquitectura.md))
+- [ ] I+D: inferencia particionada por capas (Ruta B, requiere otro runtime)
 
 ## Contribuir
 

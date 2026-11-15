@@ -3,11 +3,15 @@
     <marker id="flecha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#FFB300"/>
     </marker>
+    <marker id="flecha-verde" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#80CBC4"/>
+    </marker>
   </defs>
 
   <rect width="1100" height="520" fill="#14151F" rx="14"/>
 
-  <text x="550" y="46" text-anchor="middle" font-size="26" font-weight="700" fill="#FFFFFF">Arquitectura: una consulta recorre la cadena de nodos</text>
+  <text x="550" y="42" text-anchor="middle" font-size="26" font-weight="700" fill="#FFFFFF">Arquitectura del MVP: réplicas de modelos completos</text>
+  <text x="550" y="68" text-anchor="middle" font-size="14" fill="#90A4AE">Cada nodo ejecuta el modelo completo; el coordinador reparte las consultas</text>
 
   <!-- Usuario -->
   <g>
@@ -19,51 +23,51 @@
   <!-- Coordinador -->
   <g>
     <rect x="290" y="180" width="220" height="130" rx="12" fill="#2A2438" stroke="#BA68C8" stroke-width="2"/>
-    <text x="400" y="215" text-anchor="middle" font-size="20" font-weight="600" fill="#CE93D8">Coordinador</text>
-    <text x="400" y="240" text-anchor="middle" font-size="13" fill="#B0BEC5">FastAPI · planificador puro</text>
-    <text x="400" y="260" text-anchor="middle" font-size="13" fill="#B0BEC5">arma la cadena, lleva el</text>
-    <text x="400" y="278" text-anchor="middle" font-size="13" fill="#B0BEC5">libro de créditos</text>
+    <text x="400" y="213" text-anchor="middle" font-size="20" font-weight="600" fill="#CE93D8">Coordinador</text>
+    <text x="400" y="238" text-anchor="middle" font-size="13" fill="#B0BEC5">FastAPI · planificador puro</text>
+    <text x="400" y="258" text-anchor="middle" font-size="13" fill="#B0BEC5">reparte consultas, vigila</text>
+    <text x="400" y="276" text-anchor="middle" font-size="13" fill="#B0BEC5">timeouts y lleva créditos</text>
   </g>
 
   <line x1="220" y1="245" x2="290" y2="245" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
   <text x="255" y="235" text-anchor="middle" font-size="12" fill="#90A4AE">HTTP/WS</text>
 
-  <!-- Nodos -->
+  <!-- Réplicas del mismo modelo -->
   <g>
-    <rect x="610" y="90" width="200" height="76" rx="12" fill="#263238" stroke="#FFB300" stroke-width="2"/>
-    <text x="710" y="122" text-anchor="middle" font-size="19" font-weight="600" fill="#FFB300">Nodo 0 (Rust)</text>
-    <text x="710" y="146" text-anchor="middle" font-size="13" fill="#B0BEC5">capas 0–11 · llama.cpp</text>
+    <rect x="610" y="90" width="210" height="76" rx="12" fill="#263238" stroke="#FFB300" stroke-width="2"/>
+    <text x="715" y="122" text-anchor="middle" font-size="19" font-weight="600" fill="#FFB300">Nodo A (Rust)</text>
+    <text x="715" y="146" text-anchor="middle" font-size="13" fill="#B0BEC5">modelo completo · llama.cpp</text>
 
-    <rect x="610" y="212" width="200" height="76" rx="12" fill="#263238" stroke="#FFB300" stroke-width="2"/>
-    <text x="710" y="244" text-anchor="middle" font-size="19" font-weight="600" fill="#FFB300">Nodo 1 (Rust)</text>
-    <text x="710" y="268" text-anchor="middle" font-size="13" fill="#B0BEC5">capas 12–23 · llama.cpp</text>
+    <rect x="610" y="212" width="210" height="76" rx="12" fill="#263238" stroke="#FFB300" stroke-width="2"/>
+    <text x="715" y="244" text-anchor="middle" font-size="19" font-weight="600" fill="#FFB300">Nodo B (Rust)</text>
+    <text x="715" y="268" text-anchor="middle" font-size="13" fill="#B0BEC5">modelo completo · llama.cpp</text>
 
-    <rect x="610" y="334" width="200" height="76" rx="12" fill="#263238" stroke="#FFB300" stroke-width="2"/>
-    <text x="710" y="366" text-anchor="middle" font-size="19" font-weight="600" fill="#FFB300">Nodo 2</text>
-    <text x="710" y="390" text-anchor="middle" font-size="13" fill="#B0BEC5">capas 24–31 · Kotlin (futuro)</text>
+    <rect x="610" y="334" width="210" height="76" rx="12" fill="#263238" stroke="#FFB300" stroke-width="2"/>
+    <text x="715" y="366" text-anchor="middle" font-size="19" font-weight="600" fill="#FFB300">Nodo C (Rust)</text>
+    <text x="715" y="390" text-anchor="middle" font-size="13" fill="#B0BEC5">réplica independiente</text>
   </g>
 
-  <!-- Cadena -->
-  <line x1="530" y1="245" x2="610" y2="245" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
-  <text x="570" y="235" text-anchor="middle" font-size="12" fill="#90A4AE">asigna</text>
-
-  <line x1="710" y1="166" x2="710" y2="212" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
-  <line x1="710" y1="288" x2="710" y2="334" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
-  <text x="770" y="196" text-anchor="middle" font-size="12" fill="#90A4AE">activaciones</text>
-  <text x="770" y="318" text-anchor="middle" font-size="12" fill="#90A4AE">activaciones</text>
+  <!-- Despacho a una réplica -->
+  <line x1="510" y1="210" x2="610" y2="130" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
+  <line x1="510" y1="245" x2="610" y2="250" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)"/>
+  <line x1="510" y1="280" x2="610" y2="370" stroke="#FFB300" stroke-width="2.5" marker-end="url(#flecha)" opacity="0.5"/>
+  <text x="548" y="200" text-anchor="middle" font-size="12" fill="#90A4AE">asigna consulta</text>
+  <text x="890" y="340" text-anchor="middle" font-size="12" fill="#90A4AE">una copia por consulta;</text>
+  <text x="890" y="356" text-anchor="middle" font-size="12" fill="#90A4AE">verificación opcional = 2 copias</text>
 
   <!-- Protocolo -->
-  <rect x="890" y="180" width="170" height="130" rx="12" fill="#1B232D" stroke="#80CBC4" stroke-width="2"/>
-  <text x="975" y="215" text-anchor="middle" font-size="18" font-weight="600" fill="#80CBC4">Protocolo</text>
-  <text x="975" y="245" text-anchor="middle" font-size="13" fill="#B0BEC5">Protobuf v1</text>
-  <text x="975" y="268" text-anchor="middle" font-size="13" fill="#B0BEC5">registro · heartbeat</text>
-  <text x="975" y="288" text-anchor="middle" font-size="13" fill="#B0BEC5">asignación · resultados</text>
+  <rect x="890" y="160" width="170" height="130" rx="12" fill="#1B232D" stroke="#80CBC4" stroke-width="2"/>
+  <text x="975" y="195" text-anchor="middle" font-size="18" font-weight="600" fill="#80CBC4">Protocolo</text>
+  <text x="975" y="225" text-anchor="middle" font-size="13" fill="#B0BEC5">JSON sobre HTTP/WS</text>
+  <text x="975" y="248" text-anchor="middle" font-size="13" fill="#B0BEC5">registro · heartbeat</text>
+  <text x="975" y="269" text-anchor="middle" font-size="13" fill="#B0BEC5">asignación · resultado</text>
+  <text x="975" y="288" text-anchor="middle" font-size="12" fill="#546E7A">Protobuf v1: diseño</text>
 
-  <line x1="850" y1="245" x2="890" y2="245" stroke="#90A4AE" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#flecha)" opacity="0.7"/>
+  <line x1="850" y1="225" x2="890" y2="225" stroke="#90A4AE" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.7"/>
 
   <!-- Resultado -->
-  <path d="M 710 410 C 710 470, 400 470, 130 285" fill="none" stroke="#80CBC4" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#flecha)"/>
-  <text x="400" y="478" text-anchor="middle" font-size="13" fill="#80CBC4">respuesta generada · créditos por cómputo verificado</text>
+  <path d="M 715 288 C 715 470, 400 478, 130 285" fill="none" stroke="#80CBC4" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#flecha-verde)"/>
+  <text x="400" y="492" text-anchor="middle" font-size="13" fill="#80CBC4">resultado por WebSocket · créditos por cómputo</text>
 
-  <text x="550" y="505" text-anchor="middle" font-size="13" fill="#546E7A">Los pesos del modelo se descargan del catálogo oficial: entre pares se comparte cómputo, no archivos.</text>
+  <text x="550" y="514" text-anchor="middle" font-size="13" fill="#546E7A">Cada nodo carga el modelo completo: no se suman VRAM/RAM entre máquinas. Entre pares se comparte cómputo, no archivos.</text>
 </svg>

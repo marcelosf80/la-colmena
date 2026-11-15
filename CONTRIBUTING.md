@@ -22,7 +22,7 @@ cd coordinador
 python3.11 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pytest tests/unitarios -v        # los 44 tests deben pasar
+pytest tests/unitarios -v        # los 74 tests deben pasar
 uvicorn app.main:app --reload    # http://localhost:8000
 ```
 
@@ -30,7 +30,7 @@ uvicorn app.main:app --reload    # http://localhost:8000
 
 ```bash
 cd nodo-escritorio
-cargo test                       # los 35 tests deben pasar
+cargo test                       # los 37 tests deben pasar
 cargo build --release
 ```
 
@@ -66,9 +66,9 @@ file matters most.
 
 | Área | Tipo de tarea |
 |---|---|
-| `coordinador/app/infraestructura` | Migraciones versionadas (alembic), cache/cola en Redis |
-| `nodo-escritorio/src/ejecutor_modelo.rs` | Bind de `llama.cpp` (crate `llama-cpp-2` o FFI) |
-| `nodo-escritorio` | ResultadoParcial/Final por el canal, benchmark real al conectar |
+| `coordinador/app/infraestructura` | Migraciones versionadas (alembic) |
+| `nodo-escritorio/src/ejecutor_modelo.rs` | Benchmark real de tokens/s al conectar |
+| `nodo-escritorio` | Cancelación/timeout local, modo determinista (temperatura 0) para verificación |
 | `docs/` | ADRs, decisiones abiertas (descentralización del coordinador) |
 | `infraestructura/` | Métricas, healthchecks (Prometheus/Grafana) |
 | CI | Cobertura de tests, linting (ruff/clippy) |

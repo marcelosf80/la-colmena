@@ -134,7 +134,7 @@ nodo conectado. Respuesta:
 
 Si el nodo no tiene canal abierto queda `en_cola` (`despachado=false`).
 `GET /consultas/{trabajo_id}` consulta el estado (`en_cola`, `en_curso`,
-`completado`, `fallido`).
+`verificando`, `completado`, `fallido`).
 
 ## Configuración
 
@@ -142,15 +142,22 @@ Si el nodo no tiene canal abierto queda `en_cola` (`despachado=false`).
 |---|---|---|
 | `COMUNIDAD_IA_BD_URL` | (vacía) | Postgres; vacía = memoria |
 | `COMUNIDAD_IA_LATIDO_TIMEOUT_S` | 30 | segundos sin latido → nodo CAIDO |
+| `COMUNIDAD_IA_TRABAJO_TIMEOUT_S` | 60 | segundos EN_CURSO sin resultado → FALLIDO |
+| `COMUNIDAD_IA_REINTENTO_COLA_S` | 10 | cada cuánto se reintenta despachar EN_COLA |
+| `COMUNIDAD_IA_TASA_VERIFICACION` | 0.0 | fracción de consultas con réplica independiente |
 
-El vigilante corre cada `timeout/3`; el peor retraso de detección es
-~1.33×timeout. El nodo de escritorio lattea cada 10 s.
+El vigilante de latidos corre cada `timeout/3`; el peor retraso de detección
+es ~1.33×timeout. El nodo de escritorio late cada 10 s.
 
-## Pendiente (Fase 1)
+## Pendiente conocido
 
-- Pipeline multi-nodo real: hoy el resultado de vuelta es siempre "final"
-  y cada nodo procesa el prompt por su cuenta; falta reenviar la activación
-  a `siguiente_nodo_id` y que solo el último eslabón reporte `resultado`
-  (`ResultadoParcial` sigue sin implementarse).
-- Cola de trabajos `EN_COLA` con reintento automático de despacho.
-- Formalizar el esquema JSON con Protobuf v1.
+- **Pipeline multi-nodo por capas: no implementado** y en contradicción con el
+  runtime actual (cada nodo ejecuta el modelo completo). No es un pendiente
+  mecánico de "reenviar activaciones": es la Ruta B de I+D descrita en
+  `docs/arquitectura.md`. Hoy el resultado que vuelve es siempre final.
+- Modo determinista (temperatura 0) o comparación tolerante para que la
+  verificación por réplicas no marque como fallo dos respuestas honestas.
+- Reputación y créditos conectados a las discrepancias.
+- Cancelación/timeout local en el nodo: el coordinador puede vencer el trabajo
+  mientras el nodo sigue procesando.
+- Formalizar el esquema JSON con Protobuf v1 (hoy no está cableado).
