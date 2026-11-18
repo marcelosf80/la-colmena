@@ -7,6 +7,42 @@ hoy*, qué se verificó realmente y qué le falta contar a quien se sume
 después. Se actualiza cada vez que el estado general cambia de forma
 relevante (no en cada commit).
 
+## 2026-11-18 (2) — Scripts para la prueba real con 2+ PCs
+
+Hasta ahora, "probarlo" significaba conocerse de memoria los comandos de
+`cargo build`/`uvicorn`/flags del nodo. Para la prueba real pendiente
+(hoja de ruta) eso es fricción de más, sobre todo para alguien corriendo
+esto por primera vez en una PC de Windows.
+
+**Qué se agregó**
+
+- `scripts/iniciar-coordinador.{ps1,sh}`: crea el venv si falta, instala
+  dependencias, y lo más útil — detecta la IP de red local y la muestra,
+  para no tener que buscarla a mano cuando un nodo va a correr en otra PC.
+- `scripts/iniciar-nodo.{ps1,sh}`: compila el nodo si hace falta y lo
+  corre. Si no se pasan `--llama-server`/`--pesos` (o las variables
+  `LLAMA_SERVER`/`PESOS` en bash), avisa explícitamente que va a correr el
+  motor simulado — para que no se interprete silenciosamente como que "no
+  anduvo" cuando en realidad nunca tuvo un modelo real para ejecutar.
+- `docs/prueba-real.md`: guía paso a paso completa — conseguir
+  `llama-server` y un modelo `.gguf` chico, Firewall de Windows, correr en
+  una sola PC primero como validación antes de usar dos máquinas, probar
+  verificación por réplicas entre dos PCs reales, y qué anotar de los
+  resultados.
+
+**No verificado en este entorno:** los `.ps1` no se pudieron probar acá
+(sandbox Linux, sin PowerShell) — se revisaron a mano contra los flags
+reales de `main.rs` (`--ram-max-mb`, `--cpu-max-pct`, `--llama-server`,
+`--pesos`, etc.), pero la primera corrida real en Windows es la prueba de
+verdad. Los `.sh` sí se validaron con `bash -n` (sintaxis) y permisos de
+ejecución, pero tampoco corrieron de punta a punta (acá no hay una
+segunda PC ni GPU para levantar `llama-server`).
+
+**Pendiente real, sin cambios:** la prueba con hardware real en sí misma
+todavía no se hizo — esto es la herramienta para hacerla, no el resultado
+de haberla hecho. Cuando se corra, anotar acá (ver la checklist al final
+de `docs/prueba-real.md`).
+
 ## 2026-11-18 — Créditos conectados de verdad + reconciliación con trabajo en paralelo
 
 **Hallazgo antes de empezar:** `LibroCreditos`/`RepositorioCreditos` ya

@@ -66,6 +66,28 @@ Decisiones destacadas:
 - **Detección de puntos únicos de falla**: posiciones con un solo candidato disponible se priorizan al asignar nodos nuevos.
 - **Arquitectura hexagonal**: dominio limpio, repositorios intercambiables. Hoy hay dos implementaciones: **en memoria** (dev/tests) y **Postgres** (producción), con la misma interfaz async. Ver [`docs/persistencia.md`](docs/persistencia.md).
 
+## Probarlo en tu PC (o en varias)
+
+Para levantar el coordinador y un nodo sin acordarte de todos los
+comandos, hay scripts listos en [`scripts/`](scripts/):
+
+```powershell
+# Windows (PowerShell)
+.\scripts\iniciar-coordinador.ps1
+.\scripts\iniciar-nodo.ps1 -Coordinador "http://localhost:8000" -ModeloHash "prueba-1"
+```
+
+```bash
+# Linux/Mac
+./scripts/iniciar-coordinador.sh
+MODELO_HASH=prueba-1 ./scripts/iniciar-nodo.sh
+```
+
+Para la prueba real con dos o más PCs en la misma red (conseguir
+`llama-server`, un modelo `.gguf`, firewall de Windows, verificación por
+réplicas entre máquinas distintas), seguí
+[`docs/prueba-real.md`](docs/prueba-real.md).
+
 ## Ejemplos
 
 **Correr el coordinador y registrar un nodo:**
