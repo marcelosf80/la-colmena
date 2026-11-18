@@ -242,11 +242,11 @@ def _trabajo_con_verificacion(estado: EstadoTrabajo = EstadoTrabajo.EN_CURSO) ->
 
 def test_aplicar_resultado_replica_primera_copia_deja_verificando() -> None:
     trabajo = aplicar_resultado_replica(
-        _trabajo_con_verificacion(), rol=ROL_PRIMARIA, exito=True, texto="hola", error=""
+        _trabajo_con_verificacion(), rol=ROL_PRIMARIA, exito=True, texto="hola", error="", tokens=12
     )
 
     assert trabajo.estado == EstadoTrabajo.VERIFICANDO
-    assert trabajo.resultado_primario == (True, "hola")
+    assert trabajo.resultado_primario == (True, "hola", 12)
     assert trabajo.resultado_secundario is None
     # Todavía no hay veredicto: no se completa con una sola copia.
     assert trabajo.texto_resultado is None
@@ -254,10 +254,10 @@ def test_aplicar_resultado_replica_primera_copia_deja_verificando() -> None:
 
 def test_aplicar_resultado_replica_coinciden_completa_con_el_texto() -> None:
     trabajo = _trabajo_con_verificacion(EstadoTrabajo.VERIFICANDO)
-    trabajo.resultado_primario = (True, "misma respuesta")
+    trabajo.resultado_primario = (True, "misma respuesta", 10)
 
     resultado = aplicar_resultado_replica(
-        trabajo, rol=ROL_VERIFICACION, exito=True, texto="misma respuesta", error=""
+        trabajo, rol=ROL_VERIFICACION, exito=True, texto="misma respuesta", error="", tokens=11
     )
 
     assert resultado.estado == EstadoTrabajo.COMPLETADO
@@ -265,9 +265,26 @@ def test_aplicar_resultado_replica_coinciden_completa_con_el_texto() -> None:
     assert resultado.error is None
 
 
+def test_aplicar_resultado_replica_coinciden_aunque_los_tokens_difieran() -> None:
+    # Dos nodos honestos pueden contar tokens distinto para el mismo texto
+    # (tokenizers o versiones distintas) — eso no es una discrepancia.
+    trabajo = _trabajo_con_verificacion(EstadoTrabajo.VERIFICANDO)
+    trabajo.resultado_primario = (True, "misma respuesta", 10)
+
+    resultado = aplicar_resultado_replica(
+        trabajo, rol=ROL_VERIFICACION, exito=True, texto="misma respuesta", error="", tokens=99
+    )
+
+    assert resultado.estado == EstadoTrabajo.COMPLETADO
+    # Ambos conteos quedan guardados para que el caller pueda acreditar a
+    # cada nodo lo que realmente reportó, aunque no coincidan entre sí.
+    assert resultado.resultado_primario[2] == 10
+    assert resultado.resultado_secundario[2] == 99
+
+
 def test_aplicar_resultado_replica_textos_distintos_marca_discrepancia() -> None:
     trabajo = _trabajo_con_verificacion(EstadoTrabajo.VERIFICANDO)
-    trabajo.resultado_primario = (True, "respuesta A")
+    trabajo.resultado_primario = (True, "respuesta A", 5)
 
     resultado = aplicar_resultado_replica(
         trabajo, rol=ROL_VERIFICACION, exito=True, texto="respuesta B", error=""
@@ -282,7 +299,7 @@ def test_aplicar_resultado_replica_una_falla_y_otra_no_marca_discrepancia() -> N
     # Una respuesta y un error nunca "coinciden", aunque tomen caminos
     # distintos: no hay forma honesta de aceptar ninguna de las dos.
     trabajo = _trabajo_con_verificacion(EstadoTrabajo.VERIFICANDO)
-    trabajo.resultado_primario = (True, "respuesta válida")
+    trabajo.resultado_primario = (True, "respuesta válida", 8)
 
     resultado = aplicar_resultado_replica(
         trabajo, rol=ROL_VERIFICACION, exito=False, texto="", error="timeout del motor"
@@ -297,7 +314,7 @@ def test_aplicar_resultado_replica_las_dos_fallan_tambien_es_discrepancia() -> N
     # que "coincida" para aceptar — se prefiere reportarlo como
     # discrepancia explícita en vez de inventar un resultado.
     trabajo = _trabajo_con_verificacion(EstadoTrabajo.VERIFICANDO)
-    trabajo.resultado_primario = (False, "error A")
+    trabajo.resultado_primario = (False, "error A", 0)
 
     resultado = aplicar_resultado_replica(
         trabajo, rol=ROL_VERIFICACION, exito=False, texto="", error="error B"

@@ -7,8 +7,9 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from app.api.dependencias import repo_candidatos, repo_trabajos
+from app.api.dependencias import repo_candidatos, repo_creditos, repo_trabajos
 from app.config import configuracion
+from app.dominio.creditos import TipoAsiento
 from app.dominio.planificador import PosicionSinCandidatosError, armar_cadena
 from app.dominio.trabajos import (
     ROL_PRIMARIA,
@@ -20,10 +21,21 @@ from app.dominio.trabajos import (
 )
 from app.infraestructura.repositorios.base import (
     RepositorioCandidatos,
+    RepositorioCreditos,
     RepositorioTrabajos,
 )
 
 router = APIRouter(prefix="/consultas", tags=["consultas"])
+
+# Cuánto le cuesta al usuario cada consulta enviada, sin importar si termina
+# COMPLETADO o FALLIDO (la cola/el cómputo del nodo se ocupan igual).
+# Simplificación deliberada: lo correcto sería cobrar proporcional a los
+# tokens de la RESPUESTA, pero eso recién se sabe después de despachar, y
+# el ratio de créditos (dominio/creditos.py) necesita un número en el
+# momento de aceptar la consulta para decidir prioridad de cola. Tampoco
+# distingue si la consulta activó verificación (que cuesta 2x en cómputo
+# real) — ver bitácora.
+COSTO_CONSULTA_UNIDADES = 1.0
 
 
 class ConsultaRequest(BaseModel):
@@ -39,6 +51,7 @@ async def enviar_consulta(
     request: Request,
     repositorio: RepositorioCandidatos = Depends(repo_candidatos),
     repositorio_trabajos: RepositorioTrabajos = Depends(repo_trabajos),
+    repositorio_creditos: RepositorioCreditos = Depends(repo_creditos),
 ) -> dict:
     candidatos = await repositorio.listar_por_modelo(payload.modelo_hash)
     try:
@@ -53,6 +66,12 @@ async def enviar_consulta(
         prompt=payload.prompt,
         cadena_nodo_ids=cadena.nodo_ids_en_orden,
         estado=EstadoTrabajo.EN_COLA,
+    )
+
+    # Se cobra apenas se acepta la consulta (ver nota de COSTO_CONSULTA_UNIDADES
+    # sobre por qué es un monto fijo y no proporcional a tokens todavía).
+    await repositorio_creditos.registrar_asiento(
+        payload.usuario_id, TipoAsiento.CONSUMO, COSTO_CONSULTA_UNIDADES
     )
 
     # Despacho al primer nodo de la cadena por WebSocket. Si no está

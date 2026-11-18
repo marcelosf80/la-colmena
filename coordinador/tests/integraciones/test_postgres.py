@@ -226,7 +226,7 @@ async def test_trabajo_con_verificacion_guarda_y_recupera_las_dos_copias(pool, m
         cadena_nodo_ids=["n0"],
         cadena_verificacion_nodo_ids=["n1"],
         estado=EstadoTrabajo.VERIFICANDO,
-        resultado_primario=(True, "respuesta primaria"),
+        resultado_primario=(True, "respuesta primaria", 7),
     )
     await repo.guardar(trabajo)
 
@@ -250,7 +250,7 @@ async def test_vigilante_de_trabajos_tambien_vence_verificando(pool, modelo_hash
             cadena_nodo_ids=["n0"],
             cadena_verificacion_nodo_ids=["n1"],
             estado=EstadoTrabajo.VERIFICANDO,
-            resultado_primario=(True, "llegó una sola copia"),
+            resultado_primario=(True, "llegó una sola copia", 3),
         )
     )
     ahora = time.time()

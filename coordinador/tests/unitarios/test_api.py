@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -173,6 +174,27 @@ def test_consulta_sin_nodo_conectado_queda_en_cola() -> None:
         assert respuesta.status_code == 202
         assert respuesta.json()["despachado"] is False
         assert respuesta.json()["estado"] == "en_cola"
+
+
+def test_enviar_consulta_registra_un_consumo_para_el_usuario() -> None:
+    modelo = _modelo_unico()
+    with TestClient(app) as cliente:
+        _registrar(cliente, f"nodo-consumo-{uuid4()}", posicion=0, modelo_hash=modelo)
+        usuario_id = f"usuario-consumo-{uuid4()}"
+
+        cliente.post(
+            "/consultas",
+            json={
+                "usuario_id": usuario_id,
+                "modelo_hash": modelo,
+                "total_posiciones": 1,
+                "prompt": "cuánto me cobra esto",
+            },
+        )
+
+        repositorio_creditos = cliente.app.state.repositorio_creditos  # type: ignore[attr-defined]
+        _aportes, consumos = asyncio.run(repositorio_creditos.saldos(usuario_id))
+        assert consumos == 1.0
 
 
 def test_verificacion_por_replicas_despacha_a_dos_nodos_independientes() -> None:

@@ -78,6 +78,11 @@ ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS prompt TEXT NOT NULL DEFAULT '';
 ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS despachado_en_unix DOUBLE PRECISION;
 ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS latencia_ms INTEGER;
 ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS tokens_generados BIGINT;
+-- Tokens de cada copia de verificación, para créditos (no confundir con
+-- tokens_generados, que es el agregado del trabajo para /metricas): acá
+-- hace falta por separado porque cada nodo se acredita lo que reportó.
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_primario_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE trabajos ADD COLUMN IF NOT EXISTS resultado_secundario_tokens INTEGER NOT NULL DEFAULT 0;
 """
 
 
@@ -209,17 +214,17 @@ class RepositorioCandidatosPostgres:
 _COLUMNAS_TRABAJO = """
     trabajo_id, usuario_id, modelo_hash, prompt, cadena_nodo_ids, estado,
     texto_resultado, error, cadena_verificacion_nodo_ids,
-    resultado_primario_exito, resultado_primario_texto,
-    resultado_secundario_exito, resultado_secundario_texto,
+    resultado_primario_exito, resultado_primario_texto, resultado_primario_tokens,
+    resultado_secundario_exito, resultado_secundario_texto, resultado_secundario_tokens,
     despachado_en_unix, latencia_ms, tokens_generados
 """
 
 
-def _resultado_replica(fila: asyncpg.Record, prefijo: str) -> tuple[bool, str] | None:
+def _resultado_replica(fila: asyncpg.Record, prefijo: str) -> tuple[bool, str, int] | None:
     exito = fila[f"{prefijo}_exito"]
     if exito is None:
         return None
-    return (exito, fila[f"{prefijo}_texto"] or "")
+    return (exito, fila[f"{prefijo}_texto"] or "", fila[f"{prefijo}_tokens"] or 0)
 
 
 def _fila_a_trabajo(fila: asyncpg.Record) -> Trabajo:
@@ -265,19 +270,21 @@ class RepositorioTrabajosPostgres:
     async def guardar(self, trabajo: Trabajo) -> None:
         exito_primario = trabajo.resultado_primario[0] if trabajo.resultado_primario else None
         texto_primario = trabajo.resultado_primario[1] if trabajo.resultado_primario else None
+        tokens_primario = trabajo.resultado_primario[2] if trabajo.resultado_primario else 0
         exito_secundario = trabajo.resultado_secundario[0] if trabajo.resultado_secundario else None
         texto_secundario = trabajo.resultado_secundario[1] if trabajo.resultado_secundario else None
+        tokens_secundario = trabajo.resultado_secundario[2] if trabajo.resultado_secundario else 0
 
         await self._pool.execute(
             """
             INSERT INTO trabajos
                 (trabajo_id, usuario_id, modelo_hash, prompt, cadena_nodo_ids, estado,
                  texto_resultado, error, actualizado_en, cadena_verificacion_nodo_ids,
-                 resultado_primario_exito, resultado_primario_texto,
-                 resultado_secundario_exito, resultado_secundario_texto,
+                 resultado_primario_exito, resultado_primario_texto, resultado_primario_tokens,
+                 resultado_secundario_exito, resultado_secundario_texto, resultado_secundario_tokens,
                  despachado_en_unix, latencia_ms, tokens_generados)
-            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, now(), $9, $10, $11, $12, $13,
-                    $14, $15, $16)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, now(), $9, $10, $11, $12, $13, $14,
+                    $15, $16, $17, $18)
             ON CONFLICT (trabajo_id) DO UPDATE SET
                 estado = EXCLUDED.estado,
                 prompt = EXCLUDED.prompt,
@@ -288,8 +295,10 @@ class RepositorioTrabajosPostgres:
                 cadena_verificacion_nodo_ids = EXCLUDED.cadena_verificacion_nodo_ids,
                 resultado_primario_exito = EXCLUDED.resultado_primario_exito,
                 resultado_primario_texto = EXCLUDED.resultado_primario_texto,
+                resultado_primario_tokens = EXCLUDED.resultado_primario_tokens,
                 resultado_secundario_exito = EXCLUDED.resultado_secundario_exito,
                 resultado_secundario_texto = EXCLUDED.resultado_secundario_texto,
+                resultado_secundario_tokens = EXCLUDED.resultado_secundario_tokens,
                 despachado_en_unix = EXCLUDED.despachado_en_unix,
                 latencia_ms = EXCLUDED.latencia_ms,
                 tokens_generados = EXCLUDED.tokens_generados
@@ -305,8 +314,10 @@ class RepositorioTrabajosPostgres:
             trabajo.cadena_verificacion_nodo_ids,
             exito_primario,
             texto_primario,
+            tokens_primario,
             exito_secundario,
             texto_secundario,
+            tokens_secundario,
             trabajo.despachado_en_unix,
             trabajo.latencia_ms,
             trabajo.tokens_generados,

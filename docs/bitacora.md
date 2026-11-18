@@ -7,6 +7,69 @@ hoy*, qué se verificó realmente y qué le falta contar a quien se sume
 después. Se actualiza cada vez que el estado general cambia de forma
 relevante (no en cada commit).
 
+## 2026-11-18 — Créditos conectados de verdad + reconciliación con trabajo en paralelo
+
+**Hallazgo antes de empezar:** `LibroCreditos`/`RepositorioCreditos` ya
+existían e inyectados en `app.state`, pero nada en el flujo real los
+llamaba. El sistema de créditos era pura intención. Esto también le
+faltaba a la verificación por réplicas para tener consecuencias: sin
+esto, una discrepancia no le costaba nada a nadie.
+
+**Nota sobre cómo se hizo este cambio:** se armó en paralelo a las Etapas
+1 y 3 de la entrada anterior (toolchain + observabilidad), ambas sobre la
+misma base (`bf16c2e`). El push propio llegó primero localmente pero el
+remoto ya tenía esas etapas pusheadas — mismo escenario de trabajo en
+paralelo que ya pasó antes con este proyecto. Se reconstruyó el cambio de
+créditos a mano sobre la versión ya mergeada (con `prompt`, métricas y
+dependencias Rust actualizadas) en vez de forzar un push que las hubiera
+pisado. Las dos features son independientes y conviven sin pisarse:
+métricas mide agregados del trabajo (`tokens_generados`, `latencia_ms`);
+créditos necesita el tokens de **cada nodo por separado** cuando hay
+verificación, por eso `resultado_primario`/`resultado_secundario` pasaron
+de `(exito, texto)` a `(exito, texto, tokens)` — un campo más, no una
+estructura paralela.
+
+**Qué cambió**
+
+- **Aporte** (`api/websockets.py::_procesar_resultado`): cuando un trabajo
+  llega a `COMPLETADO`, se acredita al nodo (o a los DOS nodos, si hubo
+  verificación y coincidieron) los `tokens` que reportó cada uno. Un
+  trabajo `FALLIDO` —error, timeout, o discrepancia— no acredita a nadie.
+  El campo `tokens` del mensaje `resultado` ya existía (lo agregó la etapa
+  de observabilidad) — créditos lo reutiliza, no agrega uno nuevo.
+- **Consumo** (`rutas_usuarios.py::enviar_consulta`): cada consulta
+  aceptada le cobra al usuario un monto fijo (`COSTO_CONSULTA_UNIDADES =
+  1.0`), documentado como simplificación deliberada hasta que tenga
+  sentido cobrar por tokens reales de la respuesta.
+- Postgres: 2 columnas nuevas (`resultado_primario_tokens`,
+  `resultado_secundario_tokens`), sumadas a `_COLUMNAS_TRABAJO` y al
+  `guardar()` ya refactorizados por la etapa de observabilidad.
+
+**Verificación**
+
+- **96 tests** unitarios (90 de la base + 6 netos de créditos — algunos
+  tests de verificación existentes se extendieron en vez de sumar).
+  Incluye un test end-to-end real con `TestClient` confirmando el consumo
+  registrado, y los tests de acreditado (nodo único, verificación
+  coincide → acredita a los dos, discrepancia → no acredita a ninguno).
+- Probado en runtime real con la app completa: arranca, registra nodo,
+  acepta consulta, el consumo queda en el libro de créditos.
+- No se tocó nada del lado Rust para esto — el campo `tokens` ya viajaba
+  en el protocolo desde la etapa de observabilidad.
+
+**Pendiente que queda**
+
+- El `ratio` de créditos (aportes/consumos) sigue sin conectarse al
+  planificador — no prioriza cola todavía, que es para lo que se diseñó
+  originalmente.
+- Una discrepancia no deja rastro de "nodo sospechoso" más allá de no
+  acreditarle esa vez — no hay cuenta de discrepancias por nodo.
+- El consumo no distingue si la consulta activó verificación (2x cómputo
+  real).
+- Los de siempre: pipeline multi-nodo real (contradicción de arquitectura
+  sin resolver), modo determinista para verificación (ya anotado por la
+  otra sesión como pendiente también), Android fuera de alcance.
+
 ## 2026-11-15 (2) — Etapas 1 y 3 del informe: toolchain y observabilidad
 
 Se completó el resto de la **Etapa 1** (estabilidad) y se hizo una primera

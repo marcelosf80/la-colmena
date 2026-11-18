@@ -9,6 +9,7 @@ from app.dominio.nodos import Candidato, EstadoNodo, Nodo
 from app.dominio.trabajos import ROL_VERIFICACION, EstadoTrabajo, Trabajo
 from app.infraestructura.repositorios.candidatos import (
     RepositorioCandidatosEnMemoria,
+    RepositorioCreditosEnMemoria,
     RepositorioTrabajosEnMemoria,
 )
 
@@ -39,6 +40,10 @@ def _candidato(nodo_id: str) -> Candidato:
             estado=EstadoNodo.CONECTADO,
         ),
     )
+
+
+def _repos() -> tuple[RepositorioTrabajosEnMemoria, RepositorioCreditosEnMemoria]:
+    return RepositorioTrabajosEnMemoria(), RepositorioCreditosEnMemoria()
 
 
 @pytest.mark.asyncio
@@ -102,13 +107,15 @@ async def test_enviar_entrega_y_limpia_conexiones_rotas() -> None:
 
 @pytest.mark.asyncio
 async def test_procesar_resultado_exitoso_completa_el_trabajo() -> None:
-    repositorio = RepositorioTrabajosEnMemoria()
+    repositorio, creditos = _repos()
     await repositorio.guardar(
         Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
     )
 
     await _procesar_resultado(
         repositorio,
+        creditos,
+        "n0",
         {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola"},
     )
 
@@ -119,7 +126,7 @@ async def test_procesar_resultado_exitoso_completa_el_trabajo() -> None:
 
 @pytest.mark.asyncio
 async def test_procesar_resultado_anota_latencia_y_tokens_si_hubo_despacho() -> None:
-    repositorio = RepositorioTrabajosEnMemoria()
+    repositorio, creditos = _repos()
     despachado = time.time() - 1.5
     await repositorio.guardar(
         Trabajo(
@@ -133,6 +140,8 @@ async def test_procesar_resultado_anota_latencia_y_tokens_si_hubo_despacho() -> 
 
     await _procesar_resultado(
         repositorio,
+        creditos,
+        "n0",
         {
             "tipo": "resultado",
             "trabajo_id": "t1",
@@ -151,13 +160,15 @@ async def test_procesar_resultado_anota_latencia_y_tokens_si_hubo_despacho() -> 
 @pytest.mark.asyncio
 async def test_procesar_resultado_sin_despacho_no_inventa_latencia() -> None:
     # Trabajos viejos (o creados sin despacho) no tienen referencia temporal.
-    repositorio = RepositorioTrabajosEnMemoria()
+    repositorio, creditos = _repos()
     await repositorio.guardar(
         Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
     )
 
     await _procesar_resultado(
         repositorio,
+        creditos,
+        "n0",
         {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola", "tokens": 7},
     )
 
@@ -168,13 +179,15 @@ async def test_procesar_resultado_sin_despacho_no_inventa_latencia() -> None:
 
 @pytest.mark.asyncio
 async def test_procesar_resultado_fallido_marca_fallido_con_el_error() -> None:
-    repositorio = RepositorioTrabajosEnMemoria()
+    repositorio, creditos = _repos()
     await repositorio.guardar(
         Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
     )
 
     await _procesar_resultado(
         repositorio,
+        creditos,
+        "n0",
         {"tipo": "resultado", "trabajo_id": "t1", "exito": False, "error": "timeout"},
     )
 
@@ -185,16 +198,18 @@ async def test_procesar_resultado_fallido_marca_fallido_con_el_error() -> None:
 
 @pytest.mark.asyncio
 async def test_procesar_resultado_sin_trabajo_id_no_rompe_el_canal() -> None:
-    repositorio = RepositorioTrabajosEnMemoria()
+    repositorio, creditos = _repos()
     # No debe lanzar, solo loguear y seguir.
-    await _procesar_resultado(repositorio, {"tipo": "resultado", "exito": True})
+    await _procesar_resultado(repositorio, creditos, "n0", {"tipo": "resultado", "exito": True})
 
 
 @pytest.mark.asyncio
 async def test_procesar_resultado_de_trabajo_desconocido_no_rompe_el_canal() -> None:
-    repositorio = RepositorioTrabajosEnMemoria()
+    repositorio, creditos = _repos()
     await _procesar_resultado(
         repositorio,
+        creditos,
+        "n0",
         {"tipo": "resultado", "trabajo_id": "no-existe", "exito": True, "texto": "x"},
     )
     assert await repositorio.obtener("no-existe") is None
@@ -204,12 +219,14 @@ async def test_procesar_resultado_de_trabajo_desconocido_no_rompe_el_canal() -> 
 async def test_procesar_resultado_sin_rol_se_trata_como_primaria() -> None:
     # Compatibilidad: un nodo viejo que no mande "rol" no debe romper nada,
     # y el trabajo se resuelve igual que antes de que existiera el campo.
-    repositorio = RepositorioTrabajosEnMemoria()
+    repositorio, creditos = _repos()
     await repositorio.guardar(
         Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
     )
 
-    await _procesar_resultado(repositorio, {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola"})
+    await _procesar_resultado(
+        repositorio, creditos, "n0", {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola"}
+    )
 
     trabajo = await repositorio.obtener("t1")
     assert trabajo.estado is EstadoTrabajo.COMPLETADO
@@ -217,7 +234,7 @@ async def test_procesar_resultado_sin_rol_se_trata_como_primaria() -> None:
 
 @pytest.mark.asyncio
 async def test_procesar_resultado_con_verificacion_espera_las_dos_copias() -> None:
-    repositorio = RepositorioTrabajosEnMemoria()
+    repositorio, creditos = _repos()
     await repositorio.guardar(
         Trabajo(
             trabajo_id="t1",
@@ -230,13 +247,15 @@ async def test_procesar_resultado_con_verificacion_espera_las_dos_copias() -> No
     )
 
     await _procesar_resultado(
-        repositorio, {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola"}
+        repositorio, creditos, "n0", {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola"}
     )
     trabajo = await repositorio.obtener("t1")
     assert trabajo.estado is EstadoTrabajo.VERIFICANDO
 
     await _procesar_resultado(
         repositorio,
+        creditos,
+        "n1",
         {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola", "rol": ROL_VERIFICACION},
     )
     trabajo = await repositorio.obtener("t1")
@@ -246,7 +265,7 @@ async def test_procesar_resultado_con_verificacion_espera_las_dos_copias() -> No
 
 @pytest.mark.asyncio
 async def test_procesar_resultado_con_verificacion_discrepancia_marca_fallido() -> None:
-    repositorio = RepositorioTrabajosEnMemoria()
+    repositorio, creditos = _repos()
     await repositorio.guardar(
         Trabajo(
             trabajo_id="t1",
@@ -259,10 +278,12 @@ async def test_procesar_resultado_con_verificacion_discrepancia_marca_fallido() 
     )
 
     await _procesar_resultado(
-        repositorio, {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "respuesta A"}
+        repositorio, creditos, "n0", {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "respuesta A"}
     )
     await _procesar_resultado(
         repositorio,
+        creditos,
+        "n1",
         {
             "tipo": "resultado",
             "trabajo_id": "t1",
@@ -275,3 +296,119 @@ async def test_procesar_resultado_con_verificacion_discrepancia_marca_fallido() 
     trabajo = await repositorio.obtener("t1")
     assert trabajo.estado is EstadoTrabajo.FALLIDO
     assert "no coinciden" in trabajo.error
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_exitoso_acredita_tokens_al_nodo() -> None:
+    repositorio, creditos = _repos()
+    await repositorio.guardar(
+        Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
+    )
+
+    await _procesar_resultado(
+        repositorio,
+        creditos,
+        "n0",
+        {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola", "tokens": 42},
+    )
+
+    aportes, _consumos = await creditos.saldos("n0")
+    assert aportes == 42.0
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_fallido_no_acredita_nada() -> None:
+    repositorio, creditos = _repos()
+    await repositorio.guardar(
+        Trabajo(trabajo_id="t1", modelo_hash="hash-1", usuario_id="u1", estado=EstadoTrabajo.EN_CURSO)
+    )
+
+    await _procesar_resultado(
+        repositorio,
+        creditos,
+        "n0",
+        {"tipo": "resultado", "trabajo_id": "t1", "exito": False, "error": "timeout", "tokens": 5},
+    )
+
+    aportes, _consumos = await creditos.saldos("n0")
+    assert aportes == 0.0
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_verificacion_coincide_acredita_a_los_dos_nodos() -> None:
+    repositorio, creditos = _repos()
+    await repositorio.guardar(
+        Trabajo(
+            trabajo_id="t1",
+            modelo_hash="hash-1",
+            usuario_id="u1",
+            cadena_nodo_ids=["n0"],
+            cadena_verificacion_nodo_ids=["n1"],
+            estado=EstadoTrabajo.EN_CURSO,
+        )
+    )
+
+    await _procesar_resultado(
+        repositorio,
+        creditos,
+        "n0",
+        {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "hola", "tokens": 10},
+    )
+    # Todavía no se acredita nada: no se sabe si va a coincidir.
+    assert (await creditos.saldos("n0"))[0] == 0.0
+
+    await _procesar_resultado(
+        repositorio,
+        creditos,
+        "n1",
+        {
+            "tipo": "resultado",
+            "trabajo_id": "t1",
+            "exito": True,
+            "texto": "hola",
+            "rol": ROL_VERIFICACION,
+            "tokens": 11,
+        },
+    )
+
+    # Ahora sí, las dos, cada uno con lo que reportó (no se promedia).
+    assert (await creditos.saldos("n0"))[0] == 10.0
+    assert (await creditos.saldos("n1"))[0] == 11.0
+
+
+@pytest.mark.asyncio
+async def test_procesar_resultado_discrepancia_no_acredita_a_ninguno() -> None:
+    repositorio, creditos = _repos()
+    await repositorio.guardar(
+        Trabajo(
+            trabajo_id="t1",
+            modelo_hash="hash-1",
+            usuario_id="u1",
+            cadena_nodo_ids=["n0"],
+            cadena_verificacion_nodo_ids=["n1"],
+            estado=EstadoTrabajo.EN_CURSO,
+        )
+    )
+
+    await _procesar_resultado(
+        repositorio,
+        creditos,
+        "n0",
+        {"tipo": "resultado", "trabajo_id": "t1", "exito": True, "texto": "respuesta A", "tokens": 10},
+    )
+    await _procesar_resultado(
+        repositorio,
+        creditos,
+        "n1",
+        {
+            "tipo": "resultado",
+            "trabajo_id": "t1",
+            "exito": True,
+            "texto": "respuesta B",
+            "rol": ROL_VERIFICACION,
+            "tokens": 10,
+        },
+    )
+
+    assert (await creditos.saldos("n0"))[0] == 0.0
+    assert (await creditos.saldos("n1"))[0] == 0.0

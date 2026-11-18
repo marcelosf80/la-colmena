@@ -46,10 +46,14 @@ class Trabajo:
     # Verificación por réplicas (opcional): si está vacía, este trabajo no
     # tiene verificación activa y se comporta exactamente como antes.
     cadena_verificacion_nodo_ids: list[str] = field(default_factory=list)
-    # Resultado crudo de cada copia, (exito, texto_o_error), hasta que
-    # llegan las dos y se puede comparar. None = todavía no llegó.
-    resultado_primario: tuple[bool, str] | None = None
-    resultado_secundario: tuple[bool, str] | None = None
+    # Resultado crudo de cada copia, (exito, texto_o_error, tokens), hasta
+    # que llegan las dos y se puede comparar. None = todavía no llegó.
+    # `tokens` viaja acá (y no entra en la comparación de si coinciden)
+    # para que `api/websockets.py` pueda acreditarle cómputo a CADA nodo
+    # cuando se resuelve — a diferencia de `tokens_generados` más abajo,
+    # que es un agregado de la métrica del trabajo, no por nodo.
+    resultado_primario: tuple[bool, str, int] | None = None
+    resultado_secundario: tuple[bool, str, int] | None = None
     # Momento (unix) en que la primaria se despachó por el canal. Junto con
     # `latencia_ms` y `tokens_generados` alimenta `GET /metricas`.
     despachado_en_unix: float | None = None
@@ -74,7 +78,9 @@ def aplicar_resultado(trabajo: Trabajo, exito: bool, texto: str, error: str) -> 
 MENSAJE_DISCREPANCIA = "verificación por réplicas: las respuestas de los nodos no coinciden"
 
 
-def aplicar_resultado_replica(trabajo: Trabajo, rol: str, exito: bool, texto: str, error: str) -> Trabajo:
+def aplicar_resultado_replica(
+    trabajo: Trabajo, rol: str, exito: bool, texto: str, error: str, tokens: int = 0
+) -> Trabajo:
     """Como `aplicar_resultado`, pero consciente de la verificación por
     réplicas: si el trabajo no tiene una cadena de verificación activa, se
     comporta exactamente igual que `aplicar_resultado` (mismo codepath para
@@ -82,19 +88,24 @@ def aplicar_resultado_replica(trabajo: Trabajo, rol: str, exito: bool, texto: st
 
     Si la verificación está activa, guarda el resultado de esta copia
     (`rol`) y, recién cuando llegaron las dos, decide: si coinciden
-    (mismo éxito y mismo texto exacto), COMPLETADO con ese texto; si no
+    (mismo éxito y mismo texto exacto — `tokens` NO entra en la
+    comparación, ver nota en el campo), COMPLETADO con ese texto; si no
     coinciden —incluida la combinación "una falló y la otra no"—, FALLIDO
     con `MENSAJE_DISCREPANCIA`. No se intenta "elegir la más probable": una
     discrepancia es justamente la señal de que algo anda mal (un nodo
     deshonesto o roto), así que se prefiere fallar visible antes que
     devolver una respuesta que no se pudo verificar.
+
+    El caller (`api/websockets.py`) decide a qué nodo(s) acreditar cómputo
+    según el estado resultante — esta función solo decide el estado del
+    trabajo, no toca créditos.
     """
     if trabajo.estado in ESTADOS_TERMINALES:
         return trabajo
     if not trabajo.cadena_verificacion_nodo_ids:
         return aplicar_resultado(trabajo, exito=exito, texto=texto, error=error)
 
-    valor = (exito, texto if exito else error)
+    valor = (exito, texto if exito else error, tokens)
     if rol == ROL_PRIMARIA:
         actualizado = replace(trabajo, resultado_primario=valor)
     else:
@@ -103,7 +114,7 @@ def aplicar_resultado_replica(trabajo: Trabajo, rol: str, exito: bool, texto: st
     if actualizado.resultado_primario is None or actualizado.resultado_secundario is None:
         return replace(actualizado, estado=EstadoTrabajo.VERIFICANDO)
 
-    coinciden = actualizado.resultado_primario == actualizado.resultado_secundario
+    coinciden = actualizado.resultado_primario[:2] == actualizado.resultado_secundario[:2]
     if coinciden and actualizado.resultado_primario[0]:
         return replace(
             actualizado,
